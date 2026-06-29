@@ -1,0 +1,40 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: web3-wallet-backend
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/web3_wallet?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:root123456}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_id
+
+jwt:
+  secret: ${JWT_SECRET:please-change-this-secret-key-to-at-least-32-bytes}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+web3:
+  rpc-url: ${WEB3_RPC_URL:https://sepolia.infura.io/v3/your-key}
+  chain-id: ${WEB3_CHAIN_ID:11155111}
+
+wallet:
+  confirm-blocks: ${WALLET_CONFIRM_BLOCKS:12}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
