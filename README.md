@@ -107,3 +107,9 @@ docker compose up -d redis
 ## 说明
 
 后端应用暂未放入 Docker 镜像。后续可新增 `Dockerfile` 并在 `docker-compose.yml` 中增加 `app` 服务。
+Phase 1：基础账户与钱包地址绑定，已完成
+Phase 2：资产账户、流水、模拟充值，已完成
+Phase 3：真实充值扫描，待开发
+Phase 4：提现冻结、签名、广播，待开发
+Phase 5：Redis 锁、任务调度、交易状态同步，待开发
+Phase 6：Docker 镜像、部署脚本、监控告警，待开发
