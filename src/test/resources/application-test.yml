@@ -1,0 +1,13 @@
+spring:
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+
+jwt:
+  secret: test-secret-key-that-is-at-least-32-bytes-long
+  expiration: 3600000
+
+web3:
+  rpc-url: http://127.0.0.1:8545
+  chain-id: 11155111
