@@ -1,0 +1,245 @@
+package com.example.wallet.module.deposit.scanner;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
+import com.example.wallet.module.deposit.config.DepositScanProperties;
+import com.example.wallet.module.deposit.config.DepositScanProperties.Token;
+import com.example.wallet.module.deposit.entity.DepositOrder;
+import com.example.wallet.module.wallet.entity.WalletAddress;
+import com.example.wallet.module.wallet.mapper.WalletAddressMapper;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.DefaultBlockParameter;
+import org.web3j.protocol.core.methods.request.EthFilter;
+import org.web3j.protocol.core.methods.response.EthBlock;
+import org.web3j.protocol.core.methods.response.EthLog;
+import org.web3j.protocol.core.methods.response.Log;
+import org.web3j.protocol.core.methods.response.TransactionReceipt;
+import org.web3j.utils.Convert;
+import org.web3j.utils.Numeric;
+import org.web3j.crypto.Hash;
+
+@Component
+public class DepositBlockScanner {
+
+    private static final Logger log = LoggerFactory.getLogger(DepositBlockScanner.class);
+    private static final BigInteger ETH_LOG_INDEX = BigInteger.valueOf(-1);
+    private static final String TRANSFER_TOPIC = Hash.sha3String("Transfer(address,address,uint256)");
+
+    private final Web3j web3j;
+    private final WalletAddressMapper walletAddressMapper;
+    private final DepositScanProperties properties;
+    private final DepositScanPersistenceService persistenceService;
+
+    public DepositBlockScanner(Web3j web3j,
+                               WalletAddressMapper walletAddressMapper,
+                               DepositScanProperties properties,
+                               DepositScanPersistenceService persistenceService) {
+        this.web3j = web3j;
+        this.walletAddressMapper = walletAddressMapper;
+        this.properties = properties;
+        this.persistenceService = persistenceService;
+    }
+
+    @Scheduled(fixedDelayString = "${wallet.scan.fixed-delay:15000}")
+    public synchronized void scan() {
+        if (!properties.getScan().isEnabled()) {
+            return;
+        }
+        try {
+            scanOnce();
+        } catch (Exception ex) {
+            log.error("Deposit block scan failed", ex);
+        }
+    }
+
+    public void scanOnce() throws Exception {
+        ChainBlockScanRecord record = persistenceService.getOrCreateRecord();
+        record = handleReorg(record);
+        BigInteger latestBlock = web3j.ethBlockNumber().send().getBlockNumber();
+        Map<String, WalletAddress> wallets = loadWallets();
+
+        BigInteger nextBlock = record.getLastScannedBlock().add(BigInteger.ONE)
+                .max(properties.getScan().getInitialBlock());
+        while (nextBlock.compareTo(latestBlock) <= 0) {
+            BigInteger endBlock = nextBlock
+                    .add(BigInteger.valueOf(properties.getScan().getBatchSize() - 1L))
+                    .min(latestBlock);
+            List<DetectedDeposit> deposits = new ArrayList<>();
+            for (BigInteger blockNumber = nextBlock;
+                 blockNumber.compareTo(endBlock) <= 0;
+                 blockNumber = blockNumber.add(BigInteger.ONE)) {
+                collectEthDeposits(getBlock(blockNumber, true), wallets, deposits);
+            }
+            collectErc20Deposits(nextBlock, endBlock, wallets, deposits);
+            EthBlock.Block end = getBlock(endBlock, false);
+            persistenceService.saveBatch(deposits, endBlock, end.getHash());
+            nextBlock = endBlock.add(BigInteger.ONE);
+        }
+
+        updateConfirmations(latestBlock);
+        BigInteger confirmedBlock = latestBlock.subtract(BigInteger.valueOf(properties.getConfirmBlocks() - 1L));
+        persistenceService.updateConfirmedBlock(confirmedBlock);
+    }
+
+    private ChainBlockScanRecord handleReorg(ChainBlockScanRecord record) throws Exception {
+        if (!StringUtils.hasText(record.getLastScannedBlockHash())
+                || record.getLastScannedBlock().compareTo(BigInteger.ZERO) < 0) {
+            return record;
+        }
+        EthBlock.Block canonical = getBlock(record.getLastScannedBlock(), false);
+        if (record.getLastScannedBlockHash().equalsIgnoreCase(canonical.getHash())) {
+            return record;
+        }
+
+        BigInteger minimum = properties.getScan().getInitialBlock().subtract(BigInteger.ONE);
+        BigInteger rewindBlock = record.getLastScannedBlock()
+                .subtract(BigInteger.valueOf(properties.getScan().getReorgDepth()))
+                .max(minimum);
+        String rewindHash = rewindBlock.compareTo(BigInteger.ZERO) >= 0
+                ? getBlock(rewindBlock, false).getHash() : null;
+
+        for (DepositOrder order : persistenceService.listConfirmedAfter(rewindBlock)) {
+            if (!isCanonical(order)) {
+                persistenceService.markConfirmedOrderReorged(order.getId());
+            }
+        }
+        persistenceService.rewind(rewindBlock, rewindHash);
+        log.warn("Chain reorg detected, scanner rewound from block {} to {}",
+                record.getLastScannedBlock(), rewindBlock);
+        return persistenceService.getOrCreateRecord();
+    }
+
+    private void updateConfirmations(BigInteger latestBlock) throws Exception {
+        int required = properties.getConfirmBlocks();
+        for (DepositOrder order : persistenceService.listPendingOrders()) {
+            BigInteger confirmations = latestBlock.subtract(order.getBlockNumber()).add(BigInteger.ONE);
+            int count = confirmations.max(BigInteger.ZERO)
+                    .min(BigInteger.valueOf(Integer.MAX_VALUE)).intValue();
+            boolean canonical = count < required || isCanonical(order);
+            persistenceService.updateConfirmation(order.getId(), count, canonical);
+        }
+    }
+
+    private boolean isCanonical(DepositOrder order) throws Exception {
+        EthBlock.Block block = getBlock(order.getBlockNumber(), false);
+        return StringUtils.hasText(order.getBlockHash())
+                && order.getBlockHash().equalsIgnoreCase(block.getHash());
+    }
+
+    private Map<String, WalletAddress> loadWallets() {
+        List<WalletAddress> addresses = walletAddressMapper.selectList(new LambdaQueryWrapper<WalletAddress>()
+                .eq(WalletAddress::getChain, properties.getScan().getChain())
+                .eq(WalletAddress::getStatus, 1));
+        Map<String, WalletAddress> result = new HashMap<>();
+        for (WalletAddress address : addresses) {
+            result.putIfAbsent(normalize(address.getAddress()), address);
+        }
+        return result;
+    }
+
+    private void collectEthDeposits(EthBlock.Block block,
+                                    Map<String, WalletAddress> wallets,
+                                    List<DetectedDeposit> deposits) throws Exception {
+        for (EthBlock.TransactionResult<?> result : block.getTransactions()) {
+            EthBlock.TransactionObject transaction = (EthBlock.TransactionObject) result.get();
+            if (!StringUtils.hasText(transaction.getTo()) || transaction.getValue().signum() <= 0) {
+                continue;
+            }
+            WalletAddress wallet = wallets.get(normalize(transaction.getTo()));
+            if (wallet == null || !isSuccessful(transaction.getHash())) {
+                continue;
+            }
+            deposits.add(new DetectedDeposit(
+                    wallet.getUserId(), properties.getScan().getChain(), "ETH", null,
+                    transaction.getFrom(), transaction.getTo(),
+                    Convert.fromWei(new BigDecimal(transaction.getValue()), Convert.Unit.ETHER),
+                    transaction.getHash(), ETH_LOG_INDEX, block.getNumber(), block.getHash()));
+        }
+    }
+
+    private void collectErc20Deposits(BigInteger fromBlock,
+                                      BigInteger toBlock,
+                                      Map<String, WalletAddress> wallets,
+                                      List<DetectedDeposit> deposits) throws Exception {
+        for (Token token : properties.getScan().getTokens()) {
+            if (!validToken(token)) {
+                log.warn("Ignoring invalid token scan configuration: {}", token.getSymbol());
+                continue;
+            }
+            EthFilter filter = new EthFilter(
+                    DefaultBlockParameter.valueOf(fromBlock),
+                    DefaultBlockParameter.valueOf(toBlock),
+                    token.getAddress());
+            filter.addSingleTopic(TRANSFER_TOPIC);
+            EthLog response = web3j.ethGetLogs(filter).send();
+            if (response.hasError()) {
+                throw new IllegalStateException(response.getError().getMessage());
+            }
+            for (EthLog.LogResult<?> result : response.getLogs()) {
+                Log event = (Log) result.get();
+                if (event.getTopics().size() < 3) {
+                    continue;
+                }
+                String toAddress = topicAddress(event.getTopics().get(2));
+                WalletAddress wallet = wallets.get(normalize(toAddress));
+                if (wallet == null) {
+                    continue;
+                }
+                BigInteger rawAmount = Numeric.toBigInt(event.getData());
+                if (rawAmount.signum() <= 0) {
+                    continue;
+                }
+                deposits.add(new DetectedDeposit(
+                        wallet.getUserId(), properties.getScan().getChain(), token.getSymbol(),
+                        normalize(token.getAddress()), topicAddress(event.getTopics().get(1)), toAddress,
+                        new BigDecimal(rawAmount).movePointLeft(token.getDecimals()),
+                        event.getTransactionHash(), event.getLogIndex(), event.getBlockNumber(), event.getBlockHash()));
+            }
+        }
+    }
+
+    private boolean isSuccessful(String txHash) throws Exception {
+        return web3j.ethGetTransactionReceipt(txHash).send().getTransactionReceipt()
+                .map(TransactionReceipt::isStatusOK)
+                .orElse(false);
+    }
+
+    private EthBlock.Block getBlock(BigInteger blockNumber, boolean fullTransactions) throws Exception {
+        EthBlock response = web3j.ethGetBlockByNumber(
+                DefaultBlockParameter.valueOf(blockNumber), fullTransactions).send();
+        if (response.hasError() || response.getBlock() == null) {
+            String message = response.hasError() ? response.getError().getMessage() : "block not found";
+            throw new IllegalStateException("Unable to read block " + blockNumber + ": " + message);
+        }
+        return response.getBlock();
+    }
+
+    private boolean validToken(Token token) {
+        return StringUtils.hasText(token.getSymbol())
+                && token.getAddress() != null
+                && token.getAddress().matches("^0x[0-9a-fA-F]{40}$")
+                && token.getDecimals() != null
+                && token.getDecimals() >= 0
+                && token.getDecimals() <= 36;
+    }
+
+    private String topicAddress(String topic) {
+        return "0x" + Numeric.cleanHexPrefix(topic).substring(24);
+    }
+
+    private String normalize(String address) {
+        return address.toLowerCase(Locale.ROOT);
+    }
+}

@@ -33,7 +33,7 @@ import org.testcontainers.utility.DockerImageName;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers(disabledWithoutDocker = true)
-class Web3WalletApplicationIT {
+class Web3WalletApplicationIntegrationTest {
 
     private static final String WALLET_ADDRESS = "0x1111111111111111111111111111111111111111";
 

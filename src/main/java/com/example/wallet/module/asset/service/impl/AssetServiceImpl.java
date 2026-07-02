@@ -47,11 +47,7 @@ public class AssetServiceImpl implements AssetService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        AssetAccount account = assetAccountMapper.selectOne(new LambdaQueryWrapper<AssetAccount>()
-                .eq(AssetAccount::getUserId, userId)
-                .eq(AssetAccount::getChain, chain)
-                .eq(AssetAccount::getTokenSymbol, tokenSymbol)
-                .eq(AssetAccount::getTokenAddress, tokenAddress));
+        AssetAccount account = assetAccountMapper.selectForUpdate(userId, chain, tokenSymbol, tokenAddress);
         if (account == null) {
             account = new AssetAccount();
             account.setUserId(userId);
@@ -87,7 +83,50 @@ public class AssetServiceImpl implements AssetService {
         flow.setBeforeFrozenBalance(beforeFrozen);
         flow.setAfterFrozenBalance(beforeFrozen);
         flow.setTxHash(txHash);
-        flow.setRemark("模拟充值入账");
+        flow.setRemark("充值确认入账");
+        flow.setCreatedAt(now);
+        assetFlowMapper.insert(flow);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reverseDeposit(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                               BigDecimal amount, Long businessId, String txHash) {
+        boolean reversed = assetFlowMapper.selectCount(new LambdaQueryWrapper<AssetFlow>()
+                .eq(AssetFlow::getBusinessType, "DEPOSIT_REORG")
+                .eq(AssetFlow::getBusinessId, businessId)) > 0;
+        if (reversed) {
+            return;
+        }
+
+        AssetAccount account = assetAccountMapper.selectForUpdate(userId, chain, tokenSymbol, tokenAddress);
+        if (account == null) {
+            throw new BizException("链重组冲正失败：资产账户不存在");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        BigDecimal beforeAvailable = account.getAvailableBalance();
+        BigDecimal beforeFrozen = account.getFrozenBalance();
+        BigDecimal afterAvailable = beforeAvailable.subtract(amount);
+        account.setAvailableBalance(afterAvailable);
+        account.setTotalBalance(afterAvailable.add(beforeFrozen));
+        account.setUpdatedAt(now);
+        assetAccountMapper.updateById(account);
+
+        AssetFlow flow = new AssetFlow();
+        flow.setUserId(userId);
+        flow.setChain(chain);
+        flow.setTokenSymbol(tokenSymbol);
+        flow.setTokenAddress(tokenAddress);
+        flow.setBusinessType("DEPOSIT_REORG");
+        flow.setBusinessId(businessId);
+        flow.setAmount(amount.negate());
+        flow.setBeforeAvailableBalance(beforeAvailable);
+        flow.setAfterAvailableBalance(afterAvailable);
+        flow.setBeforeFrozenBalance(beforeFrozen);
+        flow.setAfterFrozenBalance(beforeFrozen);
+        flow.setTxHash(txHash);
+        flow.setRemark("链重组充值冲正");
         flow.setCreatedAt(now);
         assetFlowMapper.insert(flow);
     }

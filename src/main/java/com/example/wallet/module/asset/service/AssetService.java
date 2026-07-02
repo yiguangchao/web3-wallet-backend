@@ -13,4 +13,7 @@ public interface AssetService {
 
     void creditDeposit(Long userId, String chain, String tokenSymbol, String tokenAddress,
                        BigDecimal amount, Long businessId, String txHash);
+
+    void reverseDeposit(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                        BigDecimal amount, Long businessId, String txHash);
 }

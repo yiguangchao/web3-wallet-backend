@@ -15,6 +15,7 @@ public class ChainBlockScanRecord {
     private Long id;
     private String chain;
     private BigInteger lastScannedBlock;
+    private String lastScannedBlockHash;
     private BigInteger confirmedBlock;
     private Integer status;
     private LocalDateTime createdAt;

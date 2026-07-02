@@ -24,6 +24,7 @@ public class DepositOrder {
     private String txHash;
     private BigInteger logIndex;
     private BigInteger blockNumber;
+    private String blockHash;
     private Integer confirmCount;
     private Integer status;
     private LocalDateTime createdAt;

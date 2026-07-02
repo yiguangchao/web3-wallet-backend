@@ -34,6 +34,14 @@ web3:
 
 wallet:
   confirm-blocks: ${WALLET_CONFIRM_BLOCKS:12}
+  scan:
+    enabled: ${WALLET_SCAN_ENABLED:false}
+    chain: ${WALLET_SCAN_CHAIN:ETH_SEPOLIA}
+    initial-block: ${WALLET_SCAN_INITIAL_BLOCK:0}
+    batch-size: ${WALLET_SCAN_BATCH_SIZE:100}
+    reorg-depth: ${WALLET_SCAN_REORG_DEPTH:24}
+    fixed-delay: ${WALLET_SCAN_FIXED_DELAY:15000}
+    tokens: []
 
 springdoc:
   swagger-ui:

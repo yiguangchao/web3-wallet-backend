@@ -7,6 +7,7 @@ import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.deposit.dto.MockConfirmDepositRequest;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
+import com.example.wallet.module.deposit.scanner.DepositBlockScanner;
 import com.example.wallet.module.deposit.service.DepositService;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,11 +21,14 @@ public class DepositServiceImpl implements DepositService {
     private final DepositOrderMapper depositOrderMapper;
     private final AssetService assetService;
     private final Web3Service web3Service;
+    private final DepositBlockScanner depositBlockScanner;
 
-    public DepositServiceImpl(DepositOrderMapper depositOrderMapper, AssetService assetService, Web3Service web3Service) {
+    public DepositServiceImpl(DepositOrderMapper depositOrderMapper, AssetService assetService, Web3Service web3Service,
+                              DepositBlockScanner depositBlockScanner) {
         this.depositOrderMapper = depositOrderMapper;
         this.assetService = assetService;
         this.web3Service = web3Service;
+        this.depositBlockScanner = depositBlockScanner;
     }
 
     @Override
@@ -79,6 +83,6 @@ public class DepositServiceImpl implements DepositService {
 
     @Override
     public void listenDeposits() {
-        // TODO: 使用 Web3j 订阅或轮询区块，解析 ETH/ERC-20 充值事件。
+        depositBlockScanner.scan();
     }
 }

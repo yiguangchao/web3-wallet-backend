@@ -55,13 +55,15 @@ CREATE TABLE IF NOT EXISTS asset_flow (
     remark VARCHAR(255),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_asset_flow_user_id (user_id),
-    KEY idx_asset_flow_tx_hash (tx_hash)
+    KEY idx_asset_flow_tx_hash (tx_hash),
+    UNIQUE KEY uk_asset_flow_business (business_type, business_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS chain_block_scan_record (
     id BIGINT PRIMARY KEY,
     chain VARCHAR(32) NOT NULL,
     last_scanned_block BIGINT NOT NULL DEFAULT 0,
+    last_scanned_block_hash VARCHAR(66),
     confirmed_block BIGINT NOT NULL DEFAULT 0,
     status TINYINT NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -81,6 +83,7 @@ CREATE TABLE IF NOT EXISTS deposit_order (
     tx_hash VARCHAR(128) NOT NULL,
     log_index BIGINT NOT NULL DEFAULT 0,
     block_number BIGINT,
+    block_hash VARCHAR(66),
     confirm_count INT NOT NULL DEFAULT 0,
     status TINYINT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

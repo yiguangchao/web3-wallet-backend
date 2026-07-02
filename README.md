@@ -104,12 +104,35 @@ docker compose up -d redis
 - Redis 分布式锁
 - 后端应用 Docker 镜像与完整部署编排
 
+
 ## 说明
 
 后端应用暂未放入 Docker 镜像。后续可新增 `Dockerfile` 并在 `docker-compose.yml` 中增加 `app` 服务。
+
 Phase 1：基础账户与钱包地址绑定，已完成
 Phase 2：资产账户、流水、模拟充值，已完成
 Phase 3：真实充值扫描，待开发
 Phase 4：提现冻结、签名、广播，待开发
 Phase 5：Redis 锁、任务调度、交易状态同步，待开发
 Phase 6：Docker 镜像、部署脚本、监控告警，待开发
+## 充值扫描配置
+
+扫描任务默认关闭。先为已有数据库执行 `src/main/resources/db/migration-scan.sql`，然后在 `application.yml` 中设置接近当前高度的 `initial-block` 并启用扫描：
+
+```yaml
+wallet:
+  confirm-blocks: 12
+  scan:
+    enabled: true
+    chain: ETH_SEPOLIA
+    initial-block: 需要开始扫描的 Sepolia 区块高度
+    batch-size: 100
+    reorg-depth: 24
+    fixed-delay: 15000
+    tokens:
+      - symbol: USDC
+        address: Sepolia Token 合约地址
+        decimals: 6
+```
+
+扫描器支持 ETH 转账和配置白名单内的 ERC-20 `Transfer` 日志。充值状态为 `0` 时等待确认，`1` 表示已确认入账，`2` 表示因链重组失效。扫描进度和区块哈希保存在 `chain_block_scan_record`，重启后会从上次高度继续。
