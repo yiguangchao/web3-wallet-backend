@@ -57,7 +57,7 @@ mvn spring-boot:run
 
 ## MySQL 初始化
 
-Docker Compose 会自动挂载 `src/main/resources/db/schema.sql` 并初始化 `web3_wallet` 数据库。若使用已有数据库，可手动执行该 SQL 文件。
+Docker Compose 只负责创建 `web3_wallet` 数据库。应用启动时 Flyway 会自动执行 `src/main/resources/db/migration` 中尚未执行的版本迁移，并通过 `flyway_schema_history` 记录数据库版本。已有非空数据库会自动建立版本 `0` 基线，再执行后续迁移。
 
 默认连接配置：
 
@@ -117,7 +117,7 @@ Phase 5：Redis 锁、任务调度、交易状态同步，待开发
 Phase 6：Docker 镜像、部署脚本、监控告警，待开发
 ## 充值扫描配置
 
-扫描任务默认关闭。先为已有数据库执行 `src/main/resources/db/migration-scan.sql`，然后在 `application.yml` 中设置接近当前高度的 `initial-block` 并启用扫描：
+扫描任务默认关闭。数据库结构由 Flyway 自动升级；在 `application.yml` 中设置接近当前高度的 `initial-block` 后再启用扫描：
 
 ```yaml
 wallet:
