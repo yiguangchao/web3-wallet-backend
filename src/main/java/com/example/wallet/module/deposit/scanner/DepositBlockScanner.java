@@ -1,6 +1,8 @@
 package com.example.wallet.module.deposit.scanner;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.wallet.infrastructure.redis.RedisDistributedLock;
+import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
 import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.config.DepositScanProperties.Token;
@@ -9,11 +11,13 @@ import com.example.wallet.module.wallet.entity.WalletAddress;
 import com.example.wallet.module.wallet.mapper.WalletAddressMapper;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -41,32 +45,59 @@ public class DepositBlockScanner {
     private final WalletAddressMapper walletAddressMapper;
     private final DepositScanProperties properties;
     private final DepositScanPersistenceService persistenceService;
+    private final RedisDistributedLock distributedLock;
 
     public DepositBlockScanner(Web3j web3j,
                                WalletAddressMapper walletAddressMapper,
                                DepositScanProperties properties,
-                               DepositScanPersistenceService persistenceService) {
+                               DepositScanPersistenceService persistenceService,
+                               RedisDistributedLock distributedLock) {
         this.web3j = web3j;
         this.walletAddressMapper = walletAddressMapper;
         this.properties = properties;
         this.persistenceService = persistenceService;
+        this.distributedLock = distributedLock;
     }
 
     @Scheduled(fixedDelayString = "${wallet.scan.fixed-delay:15000}")
-    public synchronized void scan() {
+    public void scan() {
         if (!properties.getScan().isEnabled()) {
             return;
         }
+        Duration leaseTime = Duration.ofMillis(properties.getScan().getLockLease());
+        String lockKey = properties.getScan().getLockKeyPrefix() + properties.getScan().getChain();
+        Optional<LockHandle> handle;
         try {
-            scanOnce();
+            handle = distributedLock.tryLock(lockKey, leaseTime);
+        } catch (Exception ex) {
+            log.error("Unable to acquire deposit scan lock {}", lockKey, ex);
+            return;
+        }
+        if (handle.isEmpty()) {
+            log.debug("Deposit scan skipped because another instance holds lock {}", lockKey);
+            return;
+        }
+        try {
+            scanOnce(handle.get(), leaseTime);
         } catch (Exception ex) {
             log.error("Deposit block scan failed", ex);
+        } finally {
+            try {
+                distributedLock.unlock(handle.get());
+            } catch (Exception ex) {
+                log.warn("Unable to release deposit scan lock {}", lockKey, ex);
+            }
         }
     }
 
     public void scanOnce() throws Exception {
+        scanOnce(null, null);
+    }
+
+    private void scanOnce(LockHandle lockHandle, Duration leaseTime) throws Exception {
         ChainBlockScanRecord record = persistenceService.getOrCreateRecord();
         record = handleReorg(record);
+        renewLock(lockHandle, leaseTime);
         BigInteger latestBlock = web3j.ethBlockNumber().send().getBlockNumber();
         Map<String, WalletAddress> wallets = loadWallets();
 
@@ -85,12 +116,20 @@ public class DepositBlockScanner {
             collectErc20Deposits(nextBlock, endBlock, wallets, deposits);
             EthBlock.Block end = getBlock(endBlock, false);
             persistenceService.saveBatch(deposits, endBlock, end.getHash());
+            renewLock(lockHandle, leaseTime);
             nextBlock = endBlock.add(BigInteger.ONE);
         }
 
         updateConfirmations(latestBlock);
+        renewLock(lockHandle, leaseTime);
         BigInteger confirmedBlock = latestBlock.subtract(BigInteger.valueOf(properties.getConfirmBlocks() - 1L));
         persistenceService.updateConfirmedBlock(confirmedBlock);
+    }
+
+    private void renewLock(LockHandle lockHandle, Duration leaseTime) {
+        if (lockHandle != null && !distributedLock.renew(lockHandle, leaseTime)) {
+            throw new IllegalStateException("Deposit scan lock ownership was lost");
+        }
     }
 
     private ChainBlockScanRecord handleReorg(ChainBlockScanRecord record) throws Exception {

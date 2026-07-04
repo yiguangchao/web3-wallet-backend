@@ -46,6 +46,8 @@ wallet:
     batch-size: ${WALLET_SCAN_BATCH_SIZE:100}
     reorg-depth: ${WALLET_SCAN_REORG_DEPTH:24}
     fixed-delay: ${WALLET_SCAN_FIXED_DELAY:15000}
+    lock-key-prefix: ${WALLET_SCAN_LOCK_KEY_PREFIX:wallet:deposit-scan:lock:}
+    lock-lease: ${WALLET_SCAN_LOCK_LEASE:300000}
     tokens: []
 
 springdoc:

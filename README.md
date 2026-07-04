@@ -129,10 +129,12 @@ wallet:
     batch-size: 100
     reorg-depth: 24
     fixed-delay: 15000
+    lock-key-prefix: wallet:deposit-scan:lock:
+    lock-lease: 300000
     tokens:
       - symbol: USDC
         address: Sepolia Token 合约地址
         decimals: 6
 ```
 
-扫描器支持 ETH 转账和配置白名单内的 ERC-20 `Transfer` 日志。充值状态为 `0` 时等待确认，`1` 表示已确认入账，`2` 表示因链重组失效。扫描进度和区块哈希保存在 `chain_block_scan_record`，重启后会从上次高度继续。
+扫描器使用 Redis 分布式锁保证同一条链同一时间仅有一个实例工作，并在每个扫描批次后续租；`lock-lease` 应大于单批次最大处理时间。扫描器支持 ETH 转账和配置白名单内的 ERC-20 `Transfer` 日志。充值状态为 `0` 时等待确认，`1` 表示已确认入账，`2` 表示因链重组失效。扫描进度和区块哈希保存在 `chain_block_scan_record`，重启后会从上次高度继续。

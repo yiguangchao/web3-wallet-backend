@@ -23,6 +23,8 @@ public class DepositScanProperties {
         private Integer batchSize = 100;
         private Integer reorgDepth = 24;
         private Long fixedDelay = 15_000L;
+        private String lockKeyPrefix = "wallet:deposit-scan:lock:";
+        private Long lockLease = 300_000L;
         private List<Token> tokens = new ArrayList<>();
     }
 
