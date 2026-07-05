@@ -36,6 +36,14 @@ jwt:
 web3:
   rpc-url: ${WEB3_RPC_URL:https://sepolia.infura.io/v3/your-key}
   chain-id: ${WEB3_CHAIN_ID:11155111}
+  connect-timeout: ${WEB3_CONNECT_TIMEOUT:5000}
+  read-timeout: ${WEB3_READ_TIMEOUT:15000}
+  write-timeout: ${WEB3_WRITE_TIMEOUT:10000}
+  call-timeout: ${WEB3_CALL_TIMEOUT:30000}
+  max-retries: ${WEB3_MAX_RETRIES:2}
+  retry-backoff: ${WEB3_RETRY_BACKOFF:500}
+  retry-max-backoff: ${WEB3_RETRY_MAX_BACKOFF:5000}
+  max-requests-per-second: ${WEB3_MAX_REQUESTS_PER_SECOND:10}
 
 wallet:
   confirm-blocks: ${WALLET_CONFIRM_BLOCKS:12}

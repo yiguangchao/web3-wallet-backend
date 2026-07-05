@@ -1,5 +1,7 @@
 package com.example.wallet.infrastructure.web3;
 
+import java.time.Duration;
+import okhttp3.OkHttpClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.web3j.protocol.Web3j;
@@ -9,7 +11,23 @@ import org.web3j.protocol.http.HttpService;
 public class Web3Config {
 
     @Bean
-    public Web3j web3j(Web3Properties properties) {
-        return Web3j.build(new HttpService(properties.getRpcUrl()));
+    public OkHttpClient web3HttpClient(Web3Properties properties) {
+        return new OkHttpClient.Builder()
+                .connectTimeout(Duration.ofMillis(properties.getConnectTimeout()))
+                .readTimeout(Duration.ofMillis(properties.getReadTimeout()))
+                .writeTimeout(Duration.ofMillis(properties.getWriteTimeout()))
+                .callTimeout(Duration.ofMillis(properties.getCallTimeout()))
+                .retryOnConnectionFailure(false)
+                .addInterceptor(new RpcRetryInterceptor(
+                        properties.getMaxRetries(),
+                        properties.getRetryBackoff(),
+                        properties.getRetryMaxBackoff()))
+                .addInterceptor(new RpcRateLimitInterceptor(properties.getMaxRequestsPerSecond()))
+                .build();
+    }
+
+    @Bean(destroyMethod = "shutdown")
+    public Web3j web3j(Web3Properties properties, OkHttpClient web3HttpClient) {
+        return Web3j.build(new HttpService(properties.getRpcUrl(), web3HttpClient, false));
     }
 }
