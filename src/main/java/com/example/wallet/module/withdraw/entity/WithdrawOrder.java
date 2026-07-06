@@ -14,6 +14,7 @@ public class WithdrawOrder {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private Long userId;
+    private String requestId;
     private String chain;
     private String tokenSymbol;
     private String tokenAddress;

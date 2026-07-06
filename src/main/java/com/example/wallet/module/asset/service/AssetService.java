@@ -16,4 +16,7 @@ public interface AssetService {
 
     void reverseDeposit(Long userId, String chain, String tokenSymbol, String tokenAddress,
                         BigDecimal amount, Long businessId, String txHash);
+
+    void freezeWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                          BigDecimal amount, BigDecimal fee, Long businessId);
 }

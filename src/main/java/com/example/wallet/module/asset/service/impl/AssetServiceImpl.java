@@ -130,4 +130,53 @@ public class AssetServiceImpl implements AssetService {
         flow.setCreatedAt(now);
         assetFlowMapper.insert(flow);
     }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void freezeWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                                 BigDecimal amount, BigDecimal fee, Long businessId) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0
+                || fee == null || fee.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BizException("提现金额或手续费不合法");
+        }
+        boolean frozen = assetFlowMapper.selectCount(new LambdaQueryWrapper<AssetFlow>()
+                .eq(AssetFlow::getBusinessType, "WITHDRAW_FREEZE")
+                .eq(AssetFlow::getBusinessId, businessId)) > 0;
+        if (frozen) {
+            return;
+        }
+
+        AssetAccount account = assetAccountMapper.selectForUpdate(userId, chain, tokenSymbol, tokenAddress);
+        BigDecimal freezeAmount = amount.add(fee);
+        if (account == null || account.getAvailableBalance().compareTo(freezeAmount) < 0) {
+            throw new BizException("可用余额不足");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        BigDecimal beforeAvailable = account.getAvailableBalance();
+        BigDecimal beforeFrozen = account.getFrozenBalance();
+        BigDecimal afterAvailable = beforeAvailable.subtract(freezeAmount);
+        BigDecimal afterFrozen = beforeFrozen.add(freezeAmount);
+        account.setAvailableBalance(afterAvailable);
+        account.setFrozenBalance(afterFrozen);
+        account.setTotalBalance(afterAvailable.add(afterFrozen));
+        account.setUpdatedAt(now);
+        assetAccountMapper.updateById(account);
+
+        AssetFlow flow = new AssetFlow();
+        flow.setUserId(userId);
+        flow.setChain(chain);
+        flow.setTokenSymbol(tokenSymbol);
+        flow.setTokenAddress(tokenAddress);
+        flow.setBusinessType("WITHDRAW_FREEZE");
+        flow.setBusinessId(businessId);
+        flow.setAmount(freezeAmount.negate());
+        flow.setBeforeAvailableBalance(beforeAvailable);
+        flow.setAfterAvailableBalance(afterAvailable);
+        flow.setBeforeFrozenBalance(beforeFrozen);
+        flow.setAfterFrozenBalance(afterFrozen);
+        flow.setRemark("提现申请冻结");
+        flow.setCreatedAt(now);
+        assetFlowMapper.insert(flow);
+    }
 }
