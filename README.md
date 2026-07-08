@@ -49,6 +49,17 @@ Windows PowerShell：
 $env:WEB3_RPC_URL="https://sepolia.infura.io/v3/your-key"
 ```
 
+RPC 客户端统一应用连接、读写和总调用超时，并对网络异常、HTTP 408/429/500/502/503/504 进行指数退避重试。默认限制为每秒 10 个请求，可通过以下环境变量调整：
+
+- `WEB3_CONNECT_TIMEOUT`：连接超时，默认 `5000` 毫秒
+- `WEB3_READ_TIMEOUT`：读取超时，默认 `15000` 毫秒
+- `WEB3_WRITE_TIMEOUT`：写入超时，默认 `10000` 毫秒
+- `WEB3_CALL_TIMEOUT`：单次完整调用超时，默认 `30000` 毫秒
+- `WEB3_MAX_RETRIES`：最大重试次数，默认 `2`
+- `WEB3_RETRY_BACKOFF`：首次退避时间，默认 `500` 毫秒
+- `WEB3_RETRY_MAX_BACKOFF`：最大退避时间，默认 `5000` 毫秒
+- `WEB3_MAX_REQUESTS_PER_SECOND`：实例级 RPC 请求速率，默认 `10`
+
 4. 启动应用：
 
 ```bash
@@ -92,8 +103,25 @@ docker compose up -d redis
 - 查询 Sepolia 当前区块与交易回执
 - 初始化资产账户、资产流水、区块扫描进度等表
 - 模拟充值确认入账
-- 提现申请记录
+- 提现申请幂等、余额校验、资产冻结与冻结流水
 
+## 提现冻结
+
+`POST /api/withdraw/apply` 需要客户端提供唯一 `requestId`。相同用户重复提交同一个 `requestId` 时返回原订单，不会重复冻结。当前手续费按提现资产同币种收取，冻结金额为 `amount + fee`。
+
+```json
+{
+  "requestId": "withdraw-20260706-001",
+  "chain": "ETH_SEPOLIA",
+  "tokenSymbol": "ETH",
+  "tokenAddress": null,
+  "toAddress": "0x1111111111111111111111111111111111111111",
+  "amount": 0.01,
+  "fee": 0.0001
+}
+```
+
+订单状态 `0` 表示资产已冻结、等待审核。申请失败或余额不足时，订单和资产变更会在同一事务中回滚。
 ## 后续计划
 
 - ERC-20 Transfer 事件监听
@@ -101,7 +129,6 @@ docker compose up -d redis
 - 真实充值确认入账
 - 提现交易签名与广播
 - 交易状态同步
-- Redis 分布式锁
 - 后端应用 Docker 镜像与完整部署编排
 
 
@@ -112,7 +139,7 @@ docker compose up -d redis
 Phase 1：基础账户与钱包地址绑定，已完成
 Phase 2：资产账户、流水、模拟充值，已完成
 Phase 3：真实充值扫描，待开发
-Phase 4：提现冻结、签名、广播，待开发
+Phase 4：提现冻结已完成；审核、签名、广播待开发
 Phase 5：Redis 锁、任务调度、交易状态同步，待开发
 Phase 6：Docker 镜像、部署脚本、监控告警，待开发
 ## 充值扫描配置
