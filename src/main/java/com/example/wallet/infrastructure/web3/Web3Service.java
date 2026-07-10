@@ -15,4 +15,8 @@ public interface Web3Service {
     BigInteger getCurrentBlockNumber();
 
     TransactionReceipt getTransactionReceipt(String txHash);
+
+    String broadcastEthTransfer(String toAddress, BigDecimal amount);
+
+    String broadcastErc20Transfer(String tokenAddress, String toAddress, BigDecimal amount, Integer decimals);
 }
