@@ -19,4 +19,10 @@ public interface AssetService {
 
     void freezeWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
                           BigDecimal amount, BigDecimal fee, Long businessId);
+
+    void confirmWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                           BigDecimal amount, BigDecimal fee, Long businessId, String txHash);
+
+    void releaseWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                           BigDecimal amount, BigDecimal fee, Long businessId, String txHash);
 }

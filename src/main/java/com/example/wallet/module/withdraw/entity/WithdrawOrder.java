@@ -18,6 +18,7 @@ public class WithdrawOrder {
     private String chain;
     private String tokenSymbol;
     private String tokenAddress;
+    private Integer tokenDecimals;
     private String toAddress;
     private BigDecimal amount;
     private BigDecimal fee;

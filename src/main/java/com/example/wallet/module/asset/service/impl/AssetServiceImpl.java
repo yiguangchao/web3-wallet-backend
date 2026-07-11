@@ -43,7 +43,7 @@ public class AssetServiceImpl implements AssetService {
     public void creditDeposit(Long userId, String chain, String tokenSymbol, String tokenAddress,
                               BigDecimal amount, Long businessId, String txHash) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BizException("入账金额必须大于 0");
+            throw new BizException("deposit amount must be greater than zero");
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -70,21 +70,8 @@ public class AssetServiceImpl implements AssetService {
         account.setUpdatedAt(now);
         assetAccountMapper.updateById(account);
 
-        AssetFlow flow = new AssetFlow();
-        flow.setUserId(userId);
-        flow.setChain(chain);
-        flow.setTokenSymbol(tokenSymbol);
-        flow.setTokenAddress(tokenAddress);
-        flow.setBusinessType("DEPOSIT");
-        flow.setBusinessId(businessId);
-        flow.setAmount(amount);
-        flow.setBeforeAvailableBalance(beforeAvailable);
-        flow.setAfterAvailableBalance(afterAvailable);
-        flow.setBeforeFrozenBalance(beforeFrozen);
-        flow.setAfterFrozenBalance(beforeFrozen);
-        flow.setTxHash(txHash);
-        flow.setRemark("充值确认入账");
-        flow.setCreatedAt(now);
+        AssetFlow flow = baseFlow(userId, chain, tokenSymbol, tokenAddress, "DEPOSIT", businessId, amount,
+                beforeAvailable, afterAvailable, beforeFrozen, beforeFrozen, txHash, "deposit confirmed");
         assetFlowMapper.insert(flow);
     }
 
@@ -101,7 +88,7 @@ public class AssetServiceImpl implements AssetService {
 
         AssetAccount account = assetAccountMapper.selectForUpdate(userId, chain, tokenSymbol, tokenAddress);
         if (account == null) {
-            throw new BizException("链重组冲正失败：资产账户不存在");
+            throw new BizException("asset account not found for deposit reversal");
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -113,21 +100,9 @@ public class AssetServiceImpl implements AssetService {
         account.setUpdatedAt(now);
         assetAccountMapper.updateById(account);
 
-        AssetFlow flow = new AssetFlow();
-        flow.setUserId(userId);
-        flow.setChain(chain);
-        flow.setTokenSymbol(tokenSymbol);
-        flow.setTokenAddress(tokenAddress);
-        flow.setBusinessType("DEPOSIT_REORG");
-        flow.setBusinessId(businessId);
-        flow.setAmount(amount.negate());
-        flow.setBeforeAvailableBalance(beforeAvailable);
-        flow.setAfterAvailableBalance(afterAvailable);
-        flow.setBeforeFrozenBalance(beforeFrozen);
-        flow.setAfterFrozenBalance(beforeFrozen);
-        flow.setTxHash(txHash);
-        flow.setRemark("链重组充值冲正");
-        flow.setCreatedAt(now);
+        AssetFlow flow = baseFlow(userId, chain, tokenSymbol, tokenAddress, "DEPOSIT_REORG", businessId,
+                amount.negate(), beforeAvailable, afterAvailable, beforeFrozen, beforeFrozen, txHash,
+                "deposit reversed by chain reorg");
         assetFlowMapper.insert(flow);
     }
 
@@ -135,10 +110,7 @@ public class AssetServiceImpl implements AssetService {
     @Transactional(rollbackFor = Exception.class)
     public void freezeWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
                                  BigDecimal amount, BigDecimal fee, Long businessId) {
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0
-                || fee == null || fee.compareTo(BigDecimal.ZERO) < 0) {
-            throw new BizException("提现金额或手续费不合法");
-        }
+        BigDecimal freezeAmount = withdrawalAmount(amount, fee);
         boolean frozen = assetFlowMapper.selectCount(new LambdaQueryWrapper<AssetFlow>()
                 .eq(AssetFlow::getBusinessType, "WITHDRAW_FREEZE")
                 .eq(AssetFlow::getBusinessId, businessId)) > 0;
@@ -147,9 +119,8 @@ public class AssetServiceImpl implements AssetService {
         }
 
         AssetAccount account = assetAccountMapper.selectForUpdate(userId, chain, tokenSymbol, tokenAddress);
-        BigDecimal freezeAmount = amount.add(fee);
         if (account == null || account.getAvailableBalance().compareTo(freezeAmount) < 0) {
-            throw new BizException("可用余额不足");
+            throw new BizException("available balance is insufficient");
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -163,20 +134,106 @@ public class AssetServiceImpl implements AssetService {
         account.setUpdatedAt(now);
         assetAccountMapper.updateById(account);
 
+        AssetFlow flow = baseFlow(userId, chain, tokenSymbol, tokenAddress, "WITHDRAW_FREEZE", businessId,
+                freezeAmount.negate(), beforeAvailable, afterAvailable, beforeFrozen, afterFrozen, null,
+                "withdraw asset frozen");
+        assetFlowMapper.insert(flow);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                                  BigDecimal amount, BigDecimal fee, Long businessId, String txHash) {
+        BigDecimal settleAmount = withdrawalAmount(amount, fee);
+        boolean confirmed = assetFlowMapper.selectCount(new LambdaQueryWrapper<AssetFlow>()
+                .eq(AssetFlow::getBusinessType, "WITHDRAW_CONFIRM")
+                .eq(AssetFlow::getBusinessId, businessId)) > 0;
+        if (confirmed) {
+            return;
+        }
+
+        AssetAccount account = assetAccountMapper.selectForUpdate(userId, chain, tokenSymbol, tokenAddress);
+        if (account == null || account.getFrozenBalance().compareTo(settleAmount) < 0) {
+            throw new BizException("frozen balance is insufficient");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        BigDecimal beforeAvailable = account.getAvailableBalance();
+        BigDecimal beforeFrozen = account.getFrozenBalance();
+        BigDecimal afterFrozen = beforeFrozen.subtract(settleAmount);
+        account.setFrozenBalance(afterFrozen);
+        account.setTotalBalance(beforeAvailable.add(afterFrozen));
+        account.setUpdatedAt(now);
+        assetAccountMapper.updateById(account);
+
+        AssetFlow flow = baseFlow(userId, chain, tokenSymbol, tokenAddress, "WITHDRAW_CONFIRM", businessId,
+                settleAmount.negate(), beforeAvailable, beforeAvailable, beforeFrozen, afterFrozen, txHash,
+                "withdraw confirmed on chain");
+        assetFlowMapper.insert(flow);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void releaseWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                                  BigDecimal amount, BigDecimal fee, Long businessId, String txHash) {
+        BigDecimal releaseAmount = withdrawalAmount(amount, fee);
+        boolean released = assetFlowMapper.selectCount(new LambdaQueryWrapper<AssetFlow>()
+                .eq(AssetFlow::getBusinessType, "WITHDRAW_RELEASE")
+                .eq(AssetFlow::getBusinessId, businessId)) > 0;
+        if (released) {
+            return;
+        }
+
+        AssetAccount account = assetAccountMapper.selectForUpdate(userId, chain, tokenSymbol, tokenAddress);
+        if (account == null || account.getFrozenBalance().compareTo(releaseAmount) < 0) {
+            throw new BizException("frozen balance is insufficient");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        BigDecimal beforeAvailable = account.getAvailableBalance();
+        BigDecimal beforeFrozen = account.getFrozenBalance();
+        BigDecimal afterAvailable = beforeAvailable.add(releaseAmount);
+        BigDecimal afterFrozen = beforeFrozen.subtract(releaseAmount);
+        account.setAvailableBalance(afterAvailable);
+        account.setFrozenBalance(afterFrozen);
+        account.setTotalBalance(afterAvailable.add(afterFrozen));
+        account.setUpdatedAt(now);
+        assetAccountMapper.updateById(account);
+
+        AssetFlow flow = baseFlow(userId, chain, tokenSymbol, tokenAddress, "WITHDRAW_RELEASE", businessId,
+                releaseAmount, beforeAvailable, afterAvailable, beforeFrozen, afterFrozen, txHash,
+                "withdraw released after chain failure");
+        assetFlowMapper.insert(flow);
+    }
+
+    private AssetFlow baseFlow(Long userId, String chain, String tokenSymbol, String tokenAddress,
+                               String businessType, Long businessId, BigDecimal amount,
+                               BigDecimal beforeAvailable, BigDecimal afterAvailable,
+                               BigDecimal beforeFrozen, BigDecimal afterFrozen,
+                               String txHash, String remark) {
         AssetFlow flow = new AssetFlow();
         flow.setUserId(userId);
         flow.setChain(chain);
         flow.setTokenSymbol(tokenSymbol);
         flow.setTokenAddress(tokenAddress);
-        flow.setBusinessType("WITHDRAW_FREEZE");
+        flow.setBusinessType(businessType);
         flow.setBusinessId(businessId);
-        flow.setAmount(freezeAmount.negate());
+        flow.setAmount(amount);
         flow.setBeforeAvailableBalance(beforeAvailable);
         flow.setAfterAvailableBalance(afterAvailable);
         flow.setBeforeFrozenBalance(beforeFrozen);
         flow.setAfterFrozenBalance(afterFrozen);
-        flow.setRemark("提现申请冻结");
-        flow.setCreatedAt(now);
-        assetFlowMapper.insert(flow);
+        flow.setTxHash(txHash);
+        flow.setRemark(remark);
+        flow.setCreatedAt(LocalDateTime.now());
+        return flow;
+    }
+
+    private BigDecimal withdrawalAmount(BigDecimal amount, BigDecimal fee) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0
+                || fee == null || fee.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BizException("withdraw amount or fee is invalid");
+        }
+        return amount.add(fee);
     }
 }

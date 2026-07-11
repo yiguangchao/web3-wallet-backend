@@ -2,6 +2,8 @@ package com.example.wallet.module.withdraw.dto;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -21,6 +23,10 @@ public class WithdrawApplyRequest {
     private String tokenSymbol;
 
     private String tokenAddress;
+
+    @Min(0)
+    @Max(36)
+    private Integer tokenDecimals = 18;
 
     @NotBlank
     private String toAddress;
