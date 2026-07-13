@@ -10,6 +10,11 @@ public interface WithdrawService {
 
     List<WithdrawOrder> listOrders(Long userId);
 
-    // TODO: 后续实现提现签名、广播与状态同步。
-    void broadcastWithdraw(Long orderId);
+    Integer approveWithdraw(Long orderId, String remark);
+
+    Integer rejectWithdraw(Long orderId, String remark);
+
+    String broadcastWithdraw(Long orderId);
+
+    Integer syncWithdrawStatus(Long orderId);
 }

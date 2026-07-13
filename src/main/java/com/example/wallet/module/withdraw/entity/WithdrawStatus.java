@@ -7,7 +7,8 @@ public enum WithdrawStatus {
     BROADCASTED(2),
     CONFIRMED(3),
     FAILED(4),
-    CANCELLED(5);
+    CANCELLED(5),
+    APPROVED(6);
 
     private final int code;
 
