@@ -74,7 +74,7 @@ class AssetServiceImplTest {
                 new BigDecimal("0.100000000000000000"),
                 99L))
                 .isInstanceOf(BizException.class)
-                .hasMessage("可用余额不足");
+                .hasMessage("available balance is insufficient");
 
         verify(assetAccountMapper, never()).updateById(any(AssetAccount.class));
         verify(assetFlowMapper, never()).insert(any(AssetFlow.class));
@@ -90,6 +90,51 @@ class AssetServiceImplTest {
 
         verify(assetAccountMapper, never()).selectForUpdate(any(), any(), any(), any());
         verify(assetFlowMapper, never()).insert(any(AssetFlow.class));
+    }
+
+
+    @Test
+    void shouldDeductFrozenBalanceWhenWithdrawConfirmed() {
+        AssetAccount account = account("6.500000000000000000", "5.500000000000000000");
+        when(assetFlowMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        when(assetAccountMapper.selectForUpdate(1L, "ETH_SEPOLIA", "ETH", null)).thenReturn(account);
+
+        assetService.confirmWithdrawal(
+                1L, "ETH_SEPOLIA", "ETH", null,
+                new BigDecimal("3.000000000000000000"),
+                new BigDecimal("0.500000000000000000"),
+                99L,
+                "0xabc");
+
+        assertThat(account.getAvailableBalance()).isEqualByComparingTo("6.500000000000000000");
+        assertThat(account.getFrozenBalance()).isEqualByComparingTo("2.000000000000000000");
+        assertThat(account.getTotalBalance()).isEqualByComparingTo("8.500000000000000000");
+        ArgumentCaptor<AssetFlow> flowCaptor = ArgumentCaptor.forClass(AssetFlow.class);
+        verify(assetFlowMapper).insert(flowCaptor.capture());
+        assertThat(flowCaptor.getValue().getBusinessType()).isEqualTo("WITHDRAW_CONFIRM");
+        assertThat(flowCaptor.getValue().getAmount()).isEqualByComparingTo("-3.500000000000000000");
+    }
+
+    @Test
+    void shouldMoveFrozenBalanceBackToAvailableWhenWithdrawFailed() {
+        AssetAccount account = account("6.500000000000000000", "5.500000000000000000");
+        when(assetFlowMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        when(assetAccountMapper.selectForUpdate(1L, "ETH_SEPOLIA", "ETH", null)).thenReturn(account);
+
+        assetService.releaseWithdrawal(
+                1L, "ETH_SEPOLIA", "ETH", null,
+                new BigDecimal("3.000000000000000000"),
+                new BigDecimal("0.500000000000000000"),
+                99L,
+                "0xabc");
+
+        assertThat(account.getAvailableBalance()).isEqualByComparingTo("10.000000000000000000");
+        assertThat(account.getFrozenBalance()).isEqualByComparingTo("2.000000000000000000");
+        assertThat(account.getTotalBalance()).isEqualByComparingTo("12.000000000000000000");
+        ArgumentCaptor<AssetFlow> flowCaptor = ArgumentCaptor.forClass(AssetFlow.class);
+        verify(assetFlowMapper).insert(flowCaptor.capture());
+        assertThat(flowCaptor.getValue().getBusinessType()).isEqualTo("WITHDRAW_RELEASE");
+        assertThat(flowCaptor.getValue().getAmount()).isEqualByComparingTo("3.500000000000000000");
     }
 
     private AssetAccount account(String available, String frozen) {
