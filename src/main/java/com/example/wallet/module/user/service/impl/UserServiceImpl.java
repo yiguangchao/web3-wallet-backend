@@ -7,6 +7,7 @@ import com.example.wallet.module.user.dto.LoginRequest;
 import com.example.wallet.module.user.dto.LoginResponse;
 import com.example.wallet.module.user.dto.RegisterRequest;
 import com.example.wallet.module.user.entity.SysUser;
+import com.example.wallet.module.user.entity.UserRole;
 import com.example.wallet.module.user.mapper.SysUserMapper;
 import com.example.wallet.module.user.service.UserService;
 import java.time.LocalDateTime;
@@ -47,6 +48,7 @@ public class UserServiceImpl implements UserService {
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
+        user.setRole(UserRole.USER.name());
         user.setStatus(1);
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
@@ -64,7 +66,18 @@ public class UserServiceImpl implements UserService {
         if (!Integer.valueOf(1).equals(user.getStatus())) {
             throw new BizException("用户已禁用");
         }
-        String token = jwtTokenProvider.createToken(user.getId(), user.getUsername());
+        String token = jwtTokenProvider.createToken(user.getId(), user.getUsername(), user.getRole());
         return new LoginResponse(token, user.getId(), user.getUsername());
+    }
+
+    @Override
+    public void updateRole(Long userId, UserRole role) {
+        SysUser user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BizException("user not found");
+        }
+        user.setRole(role.name());
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
     }
 }
