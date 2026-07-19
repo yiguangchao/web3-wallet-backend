@@ -5,6 +5,7 @@ import com.example.wallet.common.utils.SecurityUtils;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.dto.WithdrawAuditRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
+import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.service.WithdrawService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/withdraw")
@@ -35,8 +37,8 @@ public class WithdrawController {
         return Result.success(withdrawService.listOrders(SecurityUtils.getCurrentUserId()));
     }
 
-
     @PostMapping("/orders/{orderId}/approve")
+    @PreAuthorize("hasAnyRole('REVIEWER', 'ADMIN')")
     public Result<Integer> approve(@PathVariable Long orderId,
                                    @Valid @RequestBody(required = false) WithdrawAuditRequest request) {
         String remark = request == null ? null : request.getRemark();
@@ -44,18 +46,27 @@ public class WithdrawController {
     }
 
     @PostMapping("/orders/{orderId}/reject")
+    @PreAuthorize("hasAnyRole('REVIEWER', 'ADMIN')")
     public Result<Integer> reject(@PathVariable Long orderId,
                                   @Valid @RequestBody(required = false) WithdrawAuditRequest request) {
         String remark = request == null ? null : request.getRemark();
         return Result.success(withdrawService.rejectWithdraw(orderId, remark));
     }
     @PostMapping("/orders/{orderId}/broadcast")
+    @PreAuthorize("hasAnyRole('OPERATOR', 'ADMIN')")
     public Result<String> broadcast(@PathVariable Long orderId) {
         return Result.success(withdrawService.broadcastWithdraw(orderId));
     }
 
     @PostMapping("/orders/{orderId}/sync")
+    @PreAuthorize("hasAnyRole('OPERATOR', 'ADMIN')")
     public Result<Integer> sync(@PathVariable Long orderId) {
         return Result.success(withdrawService.syncWithdrawStatus(orderId));
+    }
+
+    @GetMapping("/orders/{orderId}/audit-logs")
+    @PreAuthorize("hasAnyRole('OPERATOR', 'REVIEWER', 'ADMIN')")
+    public Result<List<WithdrawOperationLog>> listAuditLogs(@PathVariable Long orderId) {
+        return Result.success(withdrawService.listAuditLogs(orderId));
     }
 }

@@ -2,6 +2,7 @@ package com.example.wallet.module.withdraw.service;
 
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
+import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import java.util.List;
 
 public interface WithdrawService {
@@ -17,4 +18,6 @@ public interface WithdrawService {
     String broadcastWithdraw(Long orderId);
 
     Integer syncWithdrawStatus(Long orderId);
+
+    List<WithdrawOperationLog> listAuditLogs(Long orderId);
 }

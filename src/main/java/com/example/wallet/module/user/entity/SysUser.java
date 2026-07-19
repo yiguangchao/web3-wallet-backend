@@ -15,6 +15,7 @@ public class SysUser {
     private String username;
     private String password;
     private String email;
+    private String role;
     private Integer status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

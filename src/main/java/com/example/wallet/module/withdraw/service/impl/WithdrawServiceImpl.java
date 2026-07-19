@@ -6,9 +6,11 @@ import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
+import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
 import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
 import com.example.wallet.module.withdraw.service.WithdrawService;
+import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,13 +26,16 @@ public class WithdrawServiceImpl implements WithdrawService {
     private final WithdrawOrderMapper withdrawOrderMapper;
     private final Web3Service web3Service;
     private final AssetService assetService;
+    private final WithdrawAuditService withdrawAuditService;
 
     public WithdrawServiceImpl(WithdrawOrderMapper withdrawOrderMapper,
                                Web3Service web3Service,
-                               AssetService assetService) {
+                               AssetService assetService,
+                               WithdrawAuditService withdrawAuditService) {
         this.withdrawOrderMapper = withdrawOrderMapper;
         this.web3Service = web3Service;
         this.assetService = assetService;
+        this.withdrawAuditService = withdrawAuditService;
     }
 
     @Override
@@ -94,10 +99,12 @@ public class WithdrawServiceImpl implements WithdrawService {
         if (!order.getStatus().equals(WithdrawStatus.PENDING_REVIEW.getCode())) {
             throw new BizException("withdraw order status cannot be approved");
         }
+        Integer beforeStatus = order.getStatus();
         order.setStatus(WithdrawStatus.APPROVED.getCode());
         order.setRemark(StringUtils.hasText(remark) ? remark : "withdraw approved, waiting for broadcast");
         order.setUpdatedAt(LocalDateTime.now());
         withdrawOrderMapper.updateById(order);
+        withdrawAuditService.record(orderId, "APPROVE", beforeStatus, order.getStatus(), order.getRemark());
         return order.getStatus();
     }
 
@@ -112,12 +119,14 @@ public class WithdrawServiceImpl implements WithdrawService {
                 && !order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
             throw new BizException("withdraw order status cannot be rejected");
         }
+        Integer beforeStatus = order.getStatus();
         assetService.releaseWithdrawal(order.getUserId(), order.getChain(), order.getTokenSymbol(),
                 order.getTokenAddress(), order.getAmount(), order.getFee(), order.getId(), order.getTxHash());
         order.setStatus(WithdrawStatus.CANCELLED.getCode());
         order.setRemark(StringUtils.hasText(remark) ? remark : "withdraw rejected, frozen asset released");
         order.setUpdatedAt(LocalDateTime.now());
         withdrawOrderMapper.updateById(order);
+        withdrawAuditService.record(orderId, "REJECT", beforeStatus, order.getStatus(), order.getRemark());
         return order.getStatus();
     }
     @Override
@@ -132,6 +141,7 @@ public class WithdrawServiceImpl implements WithdrawService {
             throw new BizException("withdraw order status cannot be broadcast");
         }
 
+        Integer beforeStatus = order.getStatus();
         order.setStatus(WithdrawStatus.PROCESSING.getCode());
         order.setRemark("withdraw transaction is being broadcast");
         order.setUpdatedAt(LocalDateTime.now());
@@ -147,6 +157,7 @@ public class WithdrawServiceImpl implements WithdrawService {
         order.setRemark("withdraw transaction broadcasted");
         order.setUpdatedAt(LocalDateTime.now());
         withdrawOrderMapper.updateById(order);
+        withdrawAuditService.record(orderId, "BROADCAST", beforeStatus, order.getStatus(), order.getRemark());
         return txHash;
     }
 
@@ -168,6 +179,7 @@ public class WithdrawServiceImpl implements WithdrawService {
             return order.getStatus();
         }
 
+        Integer beforeStatus = order.getStatus();
         if (receipt.isStatusOK()) {
             assetService.confirmWithdrawal(order.getUserId(), order.getChain(), order.getTokenSymbol(),
                     order.getTokenAddress(), order.getAmount(), order.getFee(), order.getId(), order.getTxHash());
@@ -181,7 +193,13 @@ public class WithdrawServiceImpl implements WithdrawService {
         }
         order.setUpdatedAt(LocalDateTime.now());
         withdrawOrderMapper.updateById(order);
+        withdrawAuditService.record(orderId, "SYNC_STATUS", beforeStatus, order.getStatus(), order.getRemark());
         return order.getStatus();
+    }
+
+    @Override
+    public List<WithdrawOperationLog> listAuditLogs(Long orderId) {
+        return withdrawAuditService.listByOrderId(orderId);
     }
 
     private WithdrawOrder requireOrderForUpdate(Long orderId) {
