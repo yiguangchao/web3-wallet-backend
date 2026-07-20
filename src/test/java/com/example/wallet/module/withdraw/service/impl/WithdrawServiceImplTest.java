@@ -17,6 +17,7 @@ import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
 import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
+import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,12 +40,14 @@ class WithdrawServiceImplTest {
     private Web3Service web3Service;
     @Mock
     private AssetService assetService;
+    @Mock
+    private WithdrawAuditService withdrawAuditService;
 
     private WithdrawServiceImpl withdrawService;
 
     @BeforeEach
     void setUp() {
-        withdrawService = new WithdrawServiceImpl(withdrawOrderMapper, web3Service, assetService);
+        withdrawService = new WithdrawServiceImpl(withdrawOrderMapper, web3Service, assetService, withdrawAuditService);
     }
 
     @Test
@@ -112,6 +115,8 @@ class WithdrawServiceImplTest {
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.APPROVED.getCode());
         assertThat(order.getRemark()).isEqualTo("risk review passed");
         verify(withdrawOrderMapper).updateById(order);
+        verify(withdrawAuditService).record(99L, "APPROVE", WithdrawStatus.PENDING_REVIEW.getCode(),
+                WithdrawStatus.APPROVED.getCode(), "risk review passed");
     }
 
     @Test
@@ -127,6 +132,8 @@ class WithdrawServiceImplTest {
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.CANCELLED.getCode());
         assertThat(order.getRemark()).isEqualTo("risk review rejected");
         verify(withdrawOrderMapper).updateById(order);
+        verify(withdrawAuditService).record(99L, "REJECT", WithdrawStatus.PENDING_REVIEW.getCode(),
+                WithdrawStatus.CANCELLED.getCode(), "risk review rejected");
     }
 
     @Test
@@ -153,6 +160,8 @@ class WithdrawServiceImplTest {
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.BROADCASTED.getCode());
         assertThat(order.getTxHash()).isEqualTo(TX_HASH);
         verify(withdrawOrderMapper, times(2)).updateById(order);
+        verify(withdrawAuditService).record(99L, "BROADCAST", WithdrawStatus.APPROVED.getCode(),
+                WithdrawStatus.BROADCASTED.getCode(), "withdraw transaction broadcasted");
     }
 
     @Test

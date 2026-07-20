@@ -27,6 +27,14 @@ class JwtTokenProviderTest {
 
         assertThat(loginUser.getUserId()).isEqualTo(1001L);
         assertThat(loginUser.getUsername()).isEqualTo("alice");
+        assertThat(loginUser.getRole()).isEqualTo("USER");
+    }
+
+    @Test
+    void shouldKeepRoleInToken() {
+        String token = tokenProvider.createToken(1002L, "reviewer", "REVIEWER");
+
+        assertThat(tokenProvider.parseToken(token).getRole()).isEqualTo("REVIEWER");
     }
 
     @Test
