@@ -7,6 +7,7 @@ import com.example.wallet.module.chain.mapper.ChainBlockScanRecordMapper;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
+import com.example.wallet.module.wallet.service.CustodySweepService;
 import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,15 +25,18 @@ public class DepositScanPersistenceService {
     private final DepositOrderMapper depositOrderMapper;
     private final AssetService assetService;
     private final DepositScanProperties properties;
+    private final CustodySweepService custodySweepService;
 
     public DepositScanPersistenceService(ChainBlockScanRecordMapper scanRecordMapper,
                                          DepositOrderMapper depositOrderMapper,
                                          AssetService assetService,
-                                         DepositScanProperties properties) {
+                                         DepositScanProperties properties,
+                                         CustodySweepService custodySweepService) {
         this.scanRecordMapper = scanRecordMapper;
         this.depositOrderMapper = depositOrderMapper;
         this.assetService = assetService;
         this.properties = properties;
+        this.custodySweepService = custodySweepService;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -119,6 +123,7 @@ public class DepositScanPersistenceService {
             }
             assetService.creditDeposit(order.getUserId(), order.getChain(), order.getTokenSymbol(),
                     order.getTokenAddress(), order.getAmount(), order.getId(), order.getTxHash());
+            custodySweepService.schedule(order);
             return;
         }
         order.setConfirmCount(confirmCount);

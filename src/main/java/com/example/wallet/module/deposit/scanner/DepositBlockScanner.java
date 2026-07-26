@@ -7,8 +7,8 @@ import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.config.DepositScanProperties.Token;
 import com.example.wallet.module.deposit.entity.DepositOrder;
-import com.example.wallet.module.wallet.entity.WalletAddress;
-import com.example.wallet.module.wallet.mapper.WalletAddressMapper;
+import com.example.wallet.module.wallet.entity.CustodyDepositAddress;
+import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Duration;
@@ -42,18 +42,18 @@ public class DepositBlockScanner {
     private static final String TRANSFER_TOPIC = Hash.sha3String("Transfer(address,address,uint256)");
 
     private final Web3j web3j;
-    private final WalletAddressMapper walletAddressMapper;
+    private final CustodyDepositAddressMapper depositAddressMapper;
     private final DepositScanProperties properties;
     private final DepositScanPersistenceService persistenceService;
     private final RedisDistributedLock distributedLock;
 
     public DepositBlockScanner(Web3j web3j,
-                               WalletAddressMapper walletAddressMapper,
+                               CustodyDepositAddressMapper depositAddressMapper,
                                DepositScanProperties properties,
                                DepositScanPersistenceService persistenceService,
                                RedisDistributedLock distributedLock) {
         this.web3j = web3j;
-        this.walletAddressMapper = walletAddressMapper;
+        this.depositAddressMapper = depositAddressMapper;
         this.properties = properties;
         this.persistenceService = persistenceService;
         this.distributedLock = distributedLock;
@@ -99,7 +99,7 @@ public class DepositBlockScanner {
         record = handleReorg(record);
         renewLock(lockHandle, leaseTime);
         BigInteger latestBlock = web3j.ethBlockNumber().send().getBlockNumber();
-        Map<String, WalletAddress> wallets = loadWallets();
+        Map<String, CustodyDepositAddress> wallets = loadWallets();
 
         BigInteger nextBlock = record.getLastScannedBlock().add(BigInteger.ONE)
                 .max(properties.getScan().getInitialBlock());
@@ -177,26 +177,26 @@ public class DepositBlockScanner {
                 && order.getBlockHash().equalsIgnoreCase(block.getHash());
     }
 
-    private Map<String, WalletAddress> loadWallets() {
-        List<WalletAddress> addresses = walletAddressMapper.selectList(new LambdaQueryWrapper<WalletAddress>()
-                .eq(WalletAddress::getChain, properties.getScan().getChain())
-                .eq(WalletAddress::getStatus, 1));
-        Map<String, WalletAddress> result = new HashMap<>();
-        for (WalletAddress address : addresses) {
-            result.putIfAbsent(normalize(address.getAddress()), address);
+    private Map<String, CustodyDepositAddress> loadWallets() {
+        List<CustodyDepositAddress> addresses = depositAddressMapper.selectList(
+                new LambdaQueryWrapper<CustodyDepositAddress>()
+                        .eq(CustodyDepositAddress::getChain, properties.getScan().getChain()));
+        Map<String, CustodyDepositAddress> result = new HashMap<>();
+        for (CustodyDepositAddress address : addresses) {
+            result.put(normalize(address.getAddress()), address);
         }
         return result;
     }
 
     private void collectEthDeposits(EthBlock.Block block,
-                                    Map<String, WalletAddress> wallets,
+                                    Map<String, CustodyDepositAddress> wallets,
                                     List<DetectedDeposit> deposits) throws Exception {
         for (EthBlock.TransactionResult<?> result : block.getTransactions()) {
             EthBlock.TransactionObject transaction = (EthBlock.TransactionObject) result.get();
             if (!StringUtils.hasText(transaction.getTo()) || transaction.getValue().signum() <= 0) {
                 continue;
             }
-            WalletAddress wallet = wallets.get(normalize(transaction.getTo()));
+            CustodyDepositAddress wallet = wallets.get(normalize(transaction.getTo()));
             if (wallet == null || !isSuccessful(transaction.getHash())) {
                 continue;
             }
@@ -210,7 +210,7 @@ public class DepositBlockScanner {
 
     private void collectErc20Deposits(BigInteger fromBlock,
                                       BigInteger toBlock,
-                                      Map<String, WalletAddress> wallets,
+                                      Map<String, CustodyDepositAddress> wallets,
                                       List<DetectedDeposit> deposits) throws Exception {
         for (Token token : properties.getScan().getTokens()) {
             if (!validToken(token)) {
@@ -232,7 +232,7 @@ public class DepositBlockScanner {
                     continue;
                 }
                 String toAddress = topicAddress(event.getTopics().get(2));
-                WalletAddress wallet = wallets.get(normalize(toAddress));
+                CustodyDepositAddress wallet = wallets.get(normalize(toAddress));
                 if (wallet == null) {
                     continue;
                 }
