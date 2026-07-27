@@ -5,3 +5,9 @@ jwt:
 web3:
   rpc-url: http://127.0.0.1:8545
   chain-id: 11155111
+
+wallet:
+  custody:
+    enabled: true
+    chain: ETH_SEPOLIA
+    active-key-version: v1
