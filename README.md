@@ -203,6 +203,17 @@ Phase 3：真实充值扫描、确认、重组处理，已完成
 Phase 4：提现冻结、审核、签名、广播，已完成
 Phase 5：Redis 锁、归集任务、交易状态同步，已完成
 Phase 6：Docker 镜像、部署脚本、监控告警，待开发
+
+### 模拟充值安全隔离
+
+`POST /api/deposit/mock-confirm` 仅用于本地开发和自动化测试，同时满足以下条件才会生效：
+
+- Spring Profile 必须为 `dev` 或 `test`，其他环境不会注册模拟充值 Controller 和 Service Bean；只要激活了 `prod`，即使误配了 `dev/test` 也不会注册。
+- 调用方必须已登录并具有 `OPERATOR` 或 `ADMIN` 角色，普通用户会被拒绝。
+- 正式 `DepositService` 不暴露模拟入账方法，生产业务只能通过链上扫描确认充值。
+
+生产部署禁止激活 `dev`、`test` Profile，并应在网关或安全组中限制内部管理接口的访问范围。
+
 ## 充值扫描配置
 
 扫描任务默认关闭。数据库结构由 Flyway 自动升级；在 `application.yml` 中设置接近当前高度的 `initial-block` 后再启用扫描：
