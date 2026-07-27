@@ -1,6 +1,6 @@
 # web3-wallet-backend
 
-Web3 Java 后端/区块链钱包服务。当前版本基于 Spring Boot + Web3j，提供钱包地址绑定、余额查询、资产账户与流水、模拟充值、提现申请等基础能力。
+Web3 Java 后端/区块链托管钱包服务。当前版本基于 Spring Boot + Web3j，提供平台 HD 充值地址分配、ETH/ERC-20 充值扫描与归集、内部资产账本、提现审核与广播等能力。
 
 ## 技术栈
 
@@ -20,11 +20,11 @@ Web3 Java 后端/区块链钱包服务。当前版本基于 Spring Boot + Web3j�
 ## 模块说明
 
 - `module.user`: 注册、登录、用户数据
-- `module.wallet`: 钱包地址绑定、ETH/ERC-20 余额查询
+- `module.wallet`: 托管充值地址分配、地址生命周期、充值归集、ETH/ERC-20 余额查询
 - `module.asset`: 资产账户、资产流水
 - `module.chain`: 当前区块、交易回执查询
-- `module.deposit`: 充值订单查询、模拟入账
-- `module.withdraw`: 提现申请、提现订单查询
+- `module.deposit`: ETH/ERC-20 扫块、确认入账、链重组处理
+- `module.withdraw`: 提现申请、审核、签名广播、状态同步
 - `infrastructure.web3`: Web3j Sepolia RPC 能力
 - `infrastructure.security`: JWT 鉴权
 
@@ -95,15 +95,76 @@ docker compose up -d redis
 
 - 用户注册、登录
 - BCrypt 密码加密
-- JWT 鉴权
-- 绑定与查询以太坊钱包地址
+- JWT 鉴权和后台 RBAC
+- 基于 BIP-44 的平台托管充值地址分配
+- 地址派生索引、路径和密钥版本管理
+- 地址全局唯一、启用、停用和退役
 - 校验以太坊地址格式
 - 查询 ETH 余额
 - 查询 ERC-20 Token 余额
 - 查询 Sepolia 当前区块与交易回执
-- 初始化资产账户、资产流水、区块扫描进度等表
-- 模拟充值确认入账
+- ETH/ERC-20 扫块、确认数、断点续扫和链重组处理
+- 充值确认后创建异步归集任务
+- ETH/ERC-20 充值地址归集、失败重试和回执确认
 - 提现申请幂等、余额校验、资产冻结与冻结流水
+- 提现审核、广播、回执同步和操作审计
+
+## 托管充值地址
+
+用户不再绑定自己控制私钥的外部地址。系统从平台 HD 主钱包为用户分配充值地址：
+
+```text
+平台助记词
+  -> m/44'/60'/account'/0/index
+  -> custody_deposit_address
+  -> 扫描地址入账
+  -> custody_sweep_order
+  -> 归集到平台资金地址
+```
+
+数据库只保存 `key_version`、`derivation_index` 和 `derivation_path`，不保存子私钥。当前仓库提供本地 HD 签名实现，生产环境应将 `CustodyKeyService` 替换为 Vault、KMS、HSM 或独立签名服务。
+
+分配或查询当前充值地址：
+
+```http
+POST /api/wallet/deposit-address
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"chain":"ETH_SEPOLIA"}
+```
+
+```http
+GET /api/wallet/deposit-addresses
+Authorization: Bearer <token>
+```
+
+同一用户、同一链最多有一个 `ACTIVE` 地址。后台可以将地址设为 `DISABLED` 或 `RETIRED`，之后用户可以获得新地址。历史地址永不分配给其他用户，并会继续参与扫描，避免迟到充值丢失。
+
+后台地址状态与归集接口：
+
+- `PUT /api/admin/wallet/deposit-addresses/{id}/status`
+- `GET /api/admin/wallet/sweeps`
+- `POST /api/admin/wallet/sweeps/{id}/retry`
+- `POST /api/admin/wallet/sweeps/run`
+
+`OPERATOR` 或 `ADMIN` 才能调用这些接口。
+
+## 托管钱包配置
+
+功能默认关闭。不要把生产助记词写入仓库或配置文件：
+
+```powershell
+$env:WALLET_CUSTODY_ENABLED="true"
+$env:WALLET_CUSTODY_MNEMONIC="平台助记词"
+$env:WALLET_CUSTODY_KEY_VERSION="v1"
+$env:WALLET_CUSTODY_COLLECTION_ADDRESS="0x平台归集地址"
+$env:WALLET_CUSTODY_SWEEP_ENABLED="true"
+```
+
+默认派生路径为 `m/44'/60'/0'/0/index`。可以通过 `WALLET_CUSTODY_ACCOUNT` 修改 account 段。增加或轮换主密钥时必须保留旧 `key_version` 的签名能力，否则旧充值地址将无法归集。
+
+ETH 归集发送“余额减 Gas 和配置保留额”。ERC-20 归集发送地址中的当前 Token 余额，充值地址必须预先有足够 ETH 支付 Gas；Gas 补给应由独立任务管理，避免与提现热钱包共用未经管理的 nonce。
 
 ## 提现冻结
 
@@ -124,11 +185,11 @@ docker compose up -d redis
 订单状态 `0` 表示资产已冻结、等待审核。申请失败或余额不足时，订单和资产变更会在同一事务中回滚。
 ## 后续计划
 
-- ERC-20 Transfer 事件监听
-- 区块扫描与确认数处理
-- 真实充值确认入账
-- 提现交易签名与广播
-- 交易状态同步
+- Vault/KMS/HSM 或独立签名服务
+- ERC-20 Gas 自动补给与风控
+- 提现和归集统一 Nonce 管理
+- 链上余额、内部账本和资产流水三方对账
+- EIP-1559、卡单加速与替换交易
 - 后端应用 Docker 镜像与完整部署编排
 
 
@@ -136,11 +197,11 @@ docker compose up -d redis
 
 后端应用暂未放入 Docker 镜像。后续可新增 `Dockerfile` 并在 `docker-compose.yml` 中增加 `app` 服务。
 
-Phase 1：基础账户与钱包地址绑定，已完成
-Phase 2：资产账户、流水、模拟充值，已完成
-Phase 3：真实充值扫描，待开发
-Phase 4：提现冻结已完成；审核、签名、广播待开发
-Phase 5：Redis 锁、任务调度、交易状态同步，待开发
+Phase 1：基础账户与托管充值地址分配，已完成
+Phase 2：资产账户、流水、仅 dev/test 可用的模拟充值，已完成
+Phase 3：真实充值扫描、确认、重组处理，已完成
+Phase 4：提现冻结、审核、签名、广播，已完成
+Phase 5：Redis 锁、归集任务、交易状态同步，已完成
 Phase 6：Docker 镜像、部署脚本、监控告警，待开发
 ## 充值扫描配置
 

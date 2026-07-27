@@ -5,3 +5,4 @@ target/
 *.log
 .env
 !.mvn/wrapper/maven-wrapper.jar
+PROJECT_DEEP_DIVE.md
