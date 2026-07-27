@@ -8,7 +8,7 @@ import static org.mockito.Mockito.when;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
-import com.example.wallet.module.wallet.mapper.WalletAddressMapper;
+import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,7 +24,7 @@ class DepositBlockScannerLockTest {
     @Mock
     private Web3j web3j;
     @Mock
-    private WalletAddressMapper walletAddressMapper;
+    private CustodyDepositAddressMapper depositAddressMapper;
     @Mock
     private DepositScanPersistenceService persistenceService;
     @Mock
@@ -38,7 +38,7 @@ class DepositBlockScannerLockTest {
         properties = new DepositScanProperties();
         properties.getScan().setEnabled(true);
         scanner = new DepositBlockScanner(
-                web3j, walletAddressMapper, properties, persistenceService, distributedLock);
+                web3j, depositAddressMapper, properties, persistenceService, distributedLock);
     }
 
     @Test
@@ -49,7 +49,7 @@ class DepositBlockScannerLockTest {
 
         scanner.scan();
 
-        verifyNoInteractions(web3j, walletAddressMapper, persistenceService);
+        verifyNoInteractions(web3j, depositAddressMapper, persistenceService);
         verify(distributedLock, never()).unlock(org.mockito.ArgumentMatchers.any());
     }
 

@@ -50,6 +50,27 @@ web3:
 
 wallet:
   confirm-blocks: ${WALLET_CONFIRM_BLOCKS:12}
+  custody:
+    enabled: ${WALLET_CUSTODY_ENABLED:false}
+    chain: ${WALLET_CUSTODY_CHAIN:ETH_SEPOLIA}
+    active-key-version: ${WALLET_CUSTODY_KEY_VERSION:v1}
+    keys:
+      - version: ${WALLET_CUSTODY_KEY_VERSION:v1}
+        mnemonic: ${WALLET_CUSTODY_MNEMONIC:}
+        passphrase: ${WALLET_CUSTODY_PASSPHRASE:}
+        account: ${WALLET_CUSTODY_ACCOUNT:0}
+    sweep:
+      enabled: ${WALLET_CUSTODY_SWEEP_ENABLED:false}
+      collection-address: ${WALLET_CUSTODY_COLLECTION_ADDRESS:}
+      fixed-delay: ${WALLET_CUSTODY_SWEEP_FIXED_DELAY:15000}
+      lock-lease: ${WALLET_CUSTODY_SWEEP_LOCK_LEASE:60000}
+      lock-key: ${WALLET_CUSTODY_SWEEP_LOCK_KEY:wallet:custody-sweep:lock}
+      batch-size: ${WALLET_CUSTODY_SWEEP_BATCH_SIZE:20}
+      max-attempts: ${WALLET_CUSTODY_SWEEP_MAX_ATTEMPTS:5}
+      retry-delay: ${WALLET_CUSTODY_SWEEP_RETRY_DELAY:60000}
+      processing-timeout: ${WALLET_CUSTODY_SWEEP_PROCESSING_TIMEOUT:300000}
+      minimum-eth-amount: ${WALLET_CUSTODY_MINIMUM_ETH_SWEEP:0.0001}
+      eth-reserve: ${WALLET_CUSTODY_ETH_RESERVE:0}
   scan:
     enabled: ${WALLET_SCAN_ENABLED:false}
     chain: ${WALLET_SCAN_CHAIN:ETH_SEPOLIA}

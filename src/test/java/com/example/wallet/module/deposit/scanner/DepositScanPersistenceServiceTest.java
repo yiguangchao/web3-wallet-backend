@@ -11,6 +11,7 @@ import com.example.wallet.module.chain.mapper.ChainBlockScanRecordMapper;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
+import com.example.wallet.module.wallet.service.CustodySweepService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,8 @@ class DepositScanPersistenceServiceTest {
     private DepositOrderMapper depositOrderMapper;
     @Mock
     private AssetService assetService;
+    @Mock
+    private CustodySweepService custodySweepService;
 
     private DepositScanPersistenceService service;
 
@@ -34,7 +37,8 @@ class DepositScanPersistenceServiceTest {
     void setUp() {
         DepositScanProperties properties = new DepositScanProperties();
         properties.setConfirmBlocks(12);
-        service = new DepositScanPersistenceService(scanRecordMapper, depositOrderMapper, assetService, properties);
+        service = new DepositScanPersistenceService(
+                scanRecordMapper, depositOrderMapper, assetService, properties, custodySweepService);
     }
 
     @Test
@@ -47,6 +51,7 @@ class DepositScanPersistenceServiceTest {
 
         verify(assetService).creditDeposit(1L, "ETH_SEPOLIA", "ETH", null,
                 new BigDecimal("1.25"), 10L, "0xtx");
+        verify(custodySweepService).schedule(order);
     }
 
     @Test

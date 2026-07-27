@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.wallet.infrastructure.web3.Web3Service;
+import com.example.wallet.infrastructure.custody.CustodyKeyService;
+import com.example.wallet.infrastructure.custody.DerivedCustodyAddress;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
@@ -69,6 +71,9 @@ class Web3WalletApplicationIntegrationTest {
     @MockBean
     private Web3Service web3Service;
 
+    @MockBean
+    private CustodyKeyService custodyKeyService;
+
     @Test
     void shouldRegisterLoginAndAccessSecuredWalletApis() throws Exception {
         mockMvc.perform(post("/api/auth/register")
@@ -98,21 +103,21 @@ class Web3WalletApplicationIntegrationTest {
         String token = loginBody.path("data").path("token").asText();
         assertThat(token).isNotBlank();
 
-        when(web3Service.isValidAddress(WALLET_ADDRESS)).thenReturn(true);
-        mockMvc.perform(post("/api/wallet/address/bind")
+        when(custodyKeyService.deriveAddress("v1", 0L)).thenReturn(
+                new DerivedCustodyAddress(WALLET_ADDRESS, "v1", 0L, "m/44'/60'/0'/0/0"));
+        mockMvc.perform(post("/api/wallet/deposit-address")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "address": "%s",
                                   "chain": "ETH_SEPOLIA"
                                 }
-                                """.formatted(WALLET_ADDRESS)))
+                                """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data").isNumber());
+                .andExpect(jsonPath("$.data.address").value(WALLET_ADDRESS));
 
-        mockMvc.perform(get("/api/wallet/address/list")
+        mockMvc.perform(get("/api/wallet/deposit-addresses")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
