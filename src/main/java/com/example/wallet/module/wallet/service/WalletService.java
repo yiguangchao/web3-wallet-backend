@@ -1,16 +1,19 @@
 package com.example.wallet.module.wallet.service;
 
-import com.example.wallet.module.wallet.dto.BindWalletAddressRequest;
+import com.example.wallet.module.wallet.dto.AllocateDepositAddressRequest;
+import com.example.wallet.module.wallet.dto.DepositAddressResponse;
 import com.example.wallet.module.wallet.dto.Erc20BalanceRequest;
-import com.example.wallet.module.wallet.entity.WalletAddress;
+import com.example.wallet.module.wallet.entity.CustodyDepositAddressStatus;
 import java.math.BigDecimal;
 import java.util.List;
 
 public interface WalletService {
 
-    Long bindAddress(Long userId, BindWalletAddressRequest request);
+    DepositAddressResponse allocateDepositAddress(Long userId, AllocateDepositAddressRequest request);
 
-    List<WalletAddress> listAddresses(Long userId);
+    List<DepositAddressResponse> listDepositAddresses(Long userId);
+
+    DepositAddressResponse updateDepositAddressStatus(Long addressId, CustodyDepositAddressStatus status);
 
     BigDecimal getEthBalance(String address);
 

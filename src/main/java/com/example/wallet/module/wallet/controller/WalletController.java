@@ -2,9 +2,9 @@ package com.example.wallet.module.wallet.controller;
 
 import com.example.wallet.common.result.Result;
 import com.example.wallet.common.utils.SecurityUtils;
-import com.example.wallet.module.wallet.dto.BindWalletAddressRequest;
+import com.example.wallet.module.wallet.dto.AllocateDepositAddressRequest;
+import com.example.wallet.module.wallet.dto.DepositAddressResponse;
 import com.example.wallet.module.wallet.dto.Erc20BalanceRequest;
-import com.example.wallet.module.wallet.entity.WalletAddress;
 import com.example.wallet.module.wallet.service.WalletService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -30,14 +30,16 @@ public class WalletController {
         this.walletService = walletService;
     }
 
-    @PostMapping("/address/bind")
-    public Result<Long> bindAddress(@Valid @RequestBody BindWalletAddressRequest request) {
-        return Result.success(walletService.bindAddress(SecurityUtils.getCurrentUserId(), request));
+    @PostMapping("/deposit-address")
+    public Result<DepositAddressResponse> allocateDepositAddress(
+            @Valid @RequestBody AllocateDepositAddressRequest request) {
+        return Result.success(walletService.allocateDepositAddress(
+                SecurityUtils.getCurrentUserId(), request));
     }
 
-    @GetMapping("/address/list")
-    public Result<List<WalletAddress>> listAddresses() {
-        return Result.success(walletService.listAddresses(SecurityUtils.getCurrentUserId()));
+    @GetMapping("/deposit-addresses")
+    public Result<List<DepositAddressResponse>> listDepositAddresses() {
+        return Result.success(walletService.listDepositAddresses(SecurityUtils.getCurrentUserId()));
     }
 
     @GetMapping("/balance/eth")

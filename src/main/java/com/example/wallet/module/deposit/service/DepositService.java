@@ -10,6 +10,5 @@ public interface DepositService {
 
     Long mockConfirm(Long userId, MockConfirmDepositRequest request);
 
-    // TODO: 后续实现真实 ERC-20 Transfer 事件监听与区块确认入账。
     void listenDeposits();
 }
