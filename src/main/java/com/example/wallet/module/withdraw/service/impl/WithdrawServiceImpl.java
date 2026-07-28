@@ -11,7 +11,6 @@ import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
 import com.example.wallet.module.withdraw.entity.WithdrawChainTransaction;
-import com.example.wallet.module.withdraw.exception.WithdrawManualReviewException;
 import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
 import com.example.wallet.module.withdraw.service.PreparedChainTransaction;
 import com.example.wallet.module.withdraw.service.WithdrawService;
@@ -24,7 +23,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import org.web3j.protocol.core.methods.response.TransactionReceipt;
+import com.example.wallet.module.withdraw.service.WithdrawChainLifecycleService;
 
 @Service
 public class WithdrawServiceImpl implements WithdrawService {
@@ -35,19 +34,22 @@ public class WithdrawServiceImpl implements WithdrawService {
     private final SupportedAssetService supportedAssetService;
     private final WithdrawAuditService withdrawAuditService;
     private final WithdrawTransactionPreparationService transactionPreparationService;
+    private final WithdrawChainLifecycleService chainLifecycleService;
 
     public WithdrawServiceImpl(WithdrawOrderMapper withdrawOrderMapper,
                                Web3Service web3Service,
                                AssetService assetService,
                                SupportedAssetService supportedAssetService,
                                WithdrawAuditService withdrawAuditService,
-                               WithdrawTransactionPreparationService transactionPreparationService) {
+                               WithdrawTransactionPreparationService transactionPreparationService,
+                               WithdrawChainLifecycleService chainLifecycleService) {
         this.withdrawOrderMapper = withdrawOrderMapper;
         this.web3Service = web3Service;
         this.assetService = assetService;
         this.supportedAssetService = supportedAssetService;
         this.withdrawAuditService = withdrawAuditService;
         this.transactionPreparationService = transactionPreparationService;
+        this.chainLifecycleService = chainLifecycleService;
     }
 
     @Override
@@ -167,70 +169,15 @@ public class WithdrawServiceImpl implements WithdrawService {
 
     @Override
     @PreAuthorize("hasAnyRole('OPERATOR', 'ADMIN')")
-    @Transactional(rollbackFor = Exception.class, noRollbackFor = WithdrawManualReviewException.class)
+    @Transactional(rollbackFor = Exception.class)
     public Integer syncWithdrawStatus(Long orderId) {
-        WithdrawOrder order = requireOrderForUpdate(orderId);
-        if (order.getStatus().equals(WithdrawStatus.CONFIRMED.getCode())
-                || order.getStatus().equals(WithdrawStatus.REJECTED.getCode())
-                || order.getStatus().equals(WithdrawStatus.MANUAL_REVIEW.getCode())) {
-            return order.getStatus();
-        }
-        if (order.getStatus().equals(WithdrawStatus.MINED.getCode())) {
-            return confirmMinedWithdrawal(order);
-        }
-        if (!order.getStatus().equals(WithdrawStatus.BROADCASTED.getCode())) {
-            throw new BizException("withdraw order status cannot be synchronized");
-        }
-        if (!StringUtils.hasText(order.getTxHash())) {
-            moveToManualReview(order, "broadcasted withdrawal has no transaction hash", null);
-            return order.getStatus();
-        }
-
-        TransactionReceipt receipt;
-        try {
-            receipt = web3Service.getTransactionReceipt(order.getTxHash());
-        } catch (RuntimeException ex) {
-            moveToManualReview(order, "transaction receipt query failed", ex);
-            throw new WithdrawManualReviewException(
-                    "withdraw receipt query requires manual review", ex);
-        }
-        if (receipt == null) {
-            return order.getStatus();
-        }
-        if (!receipt.isStatusOK()) {
-            moveToManualReview(order, "withdraw transaction receipt indicates failure", null);
-            return order.getStatus();
-        }
-
-        transition(order, WithdrawStatus.BROADCASTED, WithdrawStatus.MINED,
-                "MINED", "withdraw transaction mined successfully", order.getTxHash(), null);
-        return order.getStatus();
+        return chainLifecycleService.sync(orderId);
     }
 
     @Override
     @PreAuthorize("hasRole('ADMIN')")
     public List<WithdrawOperationLog> listAuditLogs(Long orderId) {
         return withdrawAuditService.listByOrderId(orderId);
-    }
-
-    private Integer confirmMinedWithdrawal(WithdrawOrder order) {
-        SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
-        assetService.confirmWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
-        transition(order, WithdrawStatus.MINED, WithdrawStatus.CONFIRMED,
-                "CONFIRM", "withdraw transaction confirmed and frozen asset deducted",
-                order.getTxHash(), null);
-        return order.getStatus();
-    }
-
-    private void moveToManualReview(WithdrawOrder order, String reason, RuntimeException cause) {
-        String detail = cause == null || !StringUtils.hasText(cause.getMessage())
-                ? reason : reason + ": " + cause.getMessage();
-        if (detail.length() > 255) {
-            detail = detail.substring(0, 255);
-        }
-        WithdrawStatus current = WithdrawStatus.fromCode(order.getStatus());
-        transition(order, current, WithdrawStatus.MANUAL_REVIEW,
-                "MANUAL_REVIEW", detail, order.getTxHash(), detail);
     }
 
     private void transition(WithdrawOrder order,

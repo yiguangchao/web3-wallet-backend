@@ -7,6 +7,8 @@ import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
 import com.example.wallet.module.chain.mapper.ChainBlockScanRecordMapper;
+import com.example.wallet.module.chain.entity.ChainScannedBlock;
+import com.example.wallet.module.chain.mapper.ChainScannedBlockMapper;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
@@ -29,17 +31,20 @@ public class DepositScanPersistenceService {
     public static final int STATUS_REORGED = 2;
 
     private final ChainBlockScanRecordMapper scanRecordMapper;
+    private final ChainScannedBlockMapper scannedBlockMapper;
     private final DepositOrderMapper depositOrderMapper;
     private final AssetService assetService;
     private final SupportedAssetService supportedAssetService;
     private final DepositScanProperties properties;
 
     public DepositScanPersistenceService(ChainBlockScanRecordMapper scanRecordMapper,
+                                         ChainScannedBlockMapper scannedBlockMapper,
                                          DepositOrderMapper depositOrderMapper,
                                          AssetService assetService,
                                          SupportedAssetService supportedAssetService,
                                          DepositScanProperties properties) {
         this.scanRecordMapper = scanRecordMapper;
+        this.scannedBlockMapper = scannedBlockMapper;
         this.depositOrderMapper = depositOrderMapper;
         this.assetService = assetService;
         this.supportedAssetService = supportedAssetService;
@@ -67,7 +72,10 @@ public class DepositScanPersistenceService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void saveBatch(List<DetectedDeposit> deposits, BigInteger blockNumber, String blockHash) {
+    public void saveBatch(List<DetectedDeposit> deposits, List<ScannedBlock> blocks) {
+        if (blocks == null || blocks.isEmpty()) {
+            throw new BizException("scanned block checkpoints are required");
+        }
         LocalDateTime now = LocalDateTime.now();
         for (DetectedDeposit detected : deposits) {
             SupportedAsset asset = supportedAssetService.getRequiredDepositAsset(detected.assetId());
@@ -100,15 +108,45 @@ public class DepositScanPersistenceService {
             order.setConfirmCount(0);
             order.setStatus(STATUS_PENDING);
             order.setSweepTaskStatus(0);
+            order.setRiskStatus(0);
             order.setCreatedAt(now);
             order.setUpdatedAt(now);
             depositOrderMapper.insert(order);
         }
+        for (ScannedBlock scanned : blocks) {
+            ChainScannedBlock checkpoint = new ChainScannedBlock();
+            checkpoint.setChain(properties.getScan().getChain());
+            checkpoint.setBlockNumber(scanned.number());
+            checkpoint.setBlockHash(scanned.hash().toLowerCase());
+            checkpoint.setParentHash(scanned.parentHash().toLowerCase());
+            checkpoint.setScannedAt(now);
+            checkpoint.setCreatedAt(now);
+            scannedBlockMapper.insert(checkpoint);
+        }
+        ScannedBlock last = blocks.get(blocks.size() - 1);
         ChainBlockScanRecord record = getOrCreateRecord();
-        record.setLastScannedBlock(blockNumber);
-        record.setLastScannedBlockHash(blockHash);
+        record.setLastScannedBlock(last.number());
+        record.setLastScannedBlockHash(last.hash());
         record.setUpdatedAt(now);
         scanRecordMapper.updateById(record);
+    }
+
+    public ChainScannedBlock findScannedBlock(BigInteger blockNumber) {
+        return scannedBlockMapper.selectByHeight(properties.getScan().getChain(), blockNumber);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void ensureCheckpoint(ScannedBlock scanned) {
+        LocalDateTime now = LocalDateTime.now();
+        ChainScannedBlock checkpoint = new ChainScannedBlock();
+        checkpoint.setId(com.baomidou.mybatisplus.core.toolkit.IdWorker.getId());
+        checkpoint.setChain(properties.getScan().getChain());
+        checkpoint.setBlockNumber(scanned.number());
+        checkpoint.setBlockHash(scanned.hash().toLowerCase());
+        checkpoint.setParentHash(scanned.parentHash().toLowerCase());
+        checkpoint.setScannedAt(now);
+        checkpoint.setCreatedAt(now);
+        scannedBlockMapper.insertIfAbsent(checkpoint);
     }
 
     public List<DepositOrder> listPendingOrders() {
@@ -152,28 +190,41 @@ public class DepositScanPersistenceService {
 
     @Transactional(rollbackFor = Exception.class)
     public void markConfirmedOrderReorged(Long orderId) {
-        DepositOrder order = depositOrderMapper.selectById(orderId);
+        DepositOrder order = depositOrderMapper.selectByIdForUpdate(orderId);
         if (order == null || order.getStatus() != STATUS_CONFIRMED) {
             return;
         }
         SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
-        assetService.reverseDeposit(order.getUserId(), asset, order.getId(), order.getTxHash());
+        assetService.freezeDepositReorgRisk(order.getUserId(), asset,
+                order.getAmount(), order.getId(), order.getTxHash());
         order.setStatus(STATUS_REORGED);
+        order.setRiskStatus(1);
+        order.setReorgedAt(LocalDateTime.now());
         order.setUpdatedAt(LocalDateTime.now());
         depositOrderMapper.updateById(order);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void rewind(BigInteger blockNumber, String blockHash) {
-        depositOrderMapper.delete(new LambdaQueryWrapper<DepositOrder>()
+        LocalDateTime now = LocalDateTime.now();
+        List<DepositOrder> pending = depositOrderMapper.selectList(new LambdaQueryWrapper<DepositOrder>()
                 .eq(DepositOrder::getChain, properties.getScan().getChain())
                 .eq(DepositOrder::getStatus, STATUS_PENDING)
                 .gt(DepositOrder::getBlockNumber, blockNumber));
+        for (DepositOrder order : pending) {
+            order.setStatus(STATUS_REORGED);
+            order.setReorgedAt(now);
+            order.setUpdatedAt(now);
+            depositOrderMapper.updateById(order);
+        }
+        scannedBlockMapper.delete(new LambdaQueryWrapper<ChainScannedBlock>()
+                .eq(ChainScannedBlock::getChain, properties.getScan().getChain())
+                .gt(ChainScannedBlock::getBlockNumber, blockNumber));
         ChainBlockScanRecord record = getOrCreateRecord();
         record.setLastScannedBlock(blockNumber);
         record.setLastScannedBlockHash(blockHash);
         record.setConfirmedBlock(blockNumber.min(record.getConfirmedBlock()));
-        record.setUpdatedAt(LocalDateTime.now());
+        record.setUpdatedAt(now);
         scanRecordMapper.updateById(record);
     }
 

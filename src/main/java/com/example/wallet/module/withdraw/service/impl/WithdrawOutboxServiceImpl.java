@@ -100,6 +100,7 @@ public class WithdrawOutboxServiceImpl implements WithdrawOutboxService {
         LocalDateTime now = LocalDateTime.now();
         chainTransaction.setStatus(WithdrawChainTransactionStatus.BROADCASTED.getCode());
         chainTransaction.setBroadcastedAt(now);
+        chainTransaction.setPendingSince(now);
         chainTransaction.setUpdatedAt(now);
         if (chainTransactionMapper.updateById(chainTransaction) != 1) {
             throw new BizException("withdraw chain transaction update failed");

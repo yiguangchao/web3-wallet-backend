@@ -65,6 +65,15 @@ wallet:
     max-attempts: ${WALLET_WITHDRAW_BROADCAST_MAX_ATTEMPTS:5}
     retry-delay: ${WALLET_WITHDRAW_BROADCAST_RETRY_DELAY:30000}
     processing-timeout: ${WALLET_WITHDRAW_BROADCAST_PROCESSING_TIMEOUT:120000}
+  withdraw-chain:
+    enabled: ${WALLET_WITHDRAW_RECEIPT_ENABLED:true}
+    gas-safety-multiplier: ${WALLET_WITHDRAW_GAS_SAFETY_MULTIPLIER:1.20}
+    max-gas-limit: ${WALLET_WITHDRAW_MAX_GAS_LIMIT:300000}
+    max-total-fee-wei: ${WALLET_WITHDRAW_MAX_TOTAL_FEE_WEI:20000000000000000}
+    pending-timeout: ${WALLET_WITHDRAW_PENDING_TIMEOUT:1800000}
+    receipt-fixed-delay: ${WALLET_WITHDRAW_RECEIPT_FIXED_DELAY:15000}
+    receipt-batch-size: ${WALLET_WITHDRAW_RECEIPT_BATCH_SIZE:50}
+    replacement-lookback-blocks: ${WALLET_WITHDRAW_REPLACEMENT_LOOKBACK_BLOCKS:128}
   signature:
     challenge-ttl: ${WALLET_SIGNATURE_CHALLENGE_TTL:300000}
   custody:

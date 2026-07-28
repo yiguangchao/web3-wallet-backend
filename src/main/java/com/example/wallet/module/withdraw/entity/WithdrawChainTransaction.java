@@ -19,15 +19,28 @@ public class WithdrawChainTransaction {
     private BigInteger nonce;
     private String signerKeyId;
     private String transactionType;
+    private String transactionFormat;
     private String toAddress;
     private BigInteger valueWei;
     private String transactionData;
+    private BigInteger estimatedGas;
     private BigInteger gasPrice;
+    private BigInteger maxPriorityFeePerGas;
+    private BigInteger maxFeePerGas;
     private BigInteger gasLimit;
+    private BigInteger maxTotalFeeWei;
     private String rawTransaction;
     private String txHash;
     private Integer status;
     private LocalDateTime broadcastedAt;
+    private BigInteger minedBlockNumber;
+    private String minedBlockHash;
+    private Integer receiptStatus;
+    private Integer confirmationCount;
+    private LocalDateTime lastReceiptCheckAt;
+    private LocalDateTime pendingSince;
+    private String replacementTxHash;
+    private LocalDateTime replacedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

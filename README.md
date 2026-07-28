@@ -276,12 +276,39 @@ Outbox 状态为 `PENDING -> PROCESSING -> SENT`，失败在达到上限前回�
 
 可通过 `WALLET_WITHDRAW_BROADCAST_ENABLED`、`WALLET_WITHDRAW_BROADCAST_MAX_ATTEMPTS`、`WALLET_WITHDRAW_BROADCAST_RETRY_DELAY` 和 `WALLET_WITHDRAW_BROADCAST_PROCESSING_TIMEOUT` 调整广播任务。生产升级前依次执行 `docs/sql/V11__wallet_nonce_preflight.sql` 和 `docs/sql/V12__withdraw_outbox_preflight.sql`。
 
+## Gas、Receipt、确认数与链重组
+
+V13 将提现交易固定为 EIP-1559 格式。准备交易时通过 `eth_estimateGas` 获取预估 Gas，向上应用安全系数，并同时限制 Gas Limit 和 `gasLimit * maxFeePerGas`；签名前检查热钱包可用 ETH，ERC-20 提现还会检查 Token 原始单位余额。当前实现只面向配置的单条 EVM 链、原生 ETH 和 `supported_asset` 中启用的 ERC-20（默认种子数据为 Sepolia USDC），不包含多链路由。
+
+后台 Receipt 任务按以下状态推进提现：
+
+```text
+BROADCASTED -> MINED -> CONFIRMED
+```
+
+达到币种的 `confirmation_blocks` 后才扣减冻结资金。Receipt 失败、已挖出 Receipt 消失或不在规范链、RPC 无法判断、交易长时间 Pending、原交易消失且 Nonce 已被其他交易消耗时，订单进入 `MANUAL_REVIEW`，资金保持冻结；同 Nonce 替换交易的哈希会写入链上交易快照。广播开关与 Receipt 追踪开关相互独立，暂停新广播不会停止已广播订单的确认。
+
+充值扫描会为每个高度保存区块哈希和父哈希。扫描游标处发生分叉时，扫描器在配置的 `reorg-depth` 内向后寻找共同祖先并回退游标；未入账的孤块充值直接标记为 `REORGED`。若已经入账的充值被重组移除，系统会将用户当前可用余额中最多等于充值金额的部分转入风险冻结，并在 `asset_risk_freeze_detail` 记录冻结额和缺口，始终保持 `total = available + frozen`。
+
+主要配置：
+
+```powershell
+$env:WALLET_WITHDRAW_RECEIPT_ENABLED="true"
+$env:WALLET_WITHDRAW_GAS_SAFETY_MULTIPLIER="1.20"
+$env:WALLET_WITHDRAW_MAX_GAS_LIMIT="300000"
+$env:WALLET_WITHDRAW_MAX_TOTAL_FEE_WEI="20000000000000000"
+$env:WALLET_WITHDRAW_PENDING_TIMEOUT="1800000"
+$env:WALLET_WITHDRAW_REPLACEMENT_LOOKBACK_BLOCKS="128"
+```
+
+生产升级前先执行只读检查脚本 `docs/sql/V13__chain_lifecycle_preflight.sql`，再执行 Flyway 迁移。
+
 ## 后续计划
 
 - ERC-20 Gas 自动补给与风控
 - 提现与充值归集共享热钱包时的统一 Nonce 域
 - 链上余额、内部账本和资产流水三方对账
-- EIP-1559、卡单加速与替换交易
+- 卡单加速交易生成与人工风险冻结解冻流程
 - 后端应用 Docker 镜像与完整部署编排
 
 
@@ -294,7 +321,8 @@ Phase 2：资产账户、流水、仅 dev/test 可用的模拟充值，已完成
 Phase 3：真实充值扫描、确认、重组处理，已完成
 Phase 4：提现冻结、审核、签名、广播，已完成
 Phase 5：Nonce、签名隔离、链上交易快照与 Outbox 广播恢复，已完成
-Phase 6：Docker 镜像、部署脚本、监控告警，待开发
+Phase 6：EIP-1559、Gas 风控、Receipt 确认与充值重组风险冻结，已完成
+Phase 7：Docker 镜像、部署脚本、监控告警，待开发
 
 ### 模拟充值安全隔离
 
