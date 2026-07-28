@@ -1,4 +1,6 @@
 target/
+src/test/evm/cache/
+src/test/evm/out/
 .idea/
 *.iml
 .vscode/

@@ -1,5 +1,10 @@
 # web3-wallet-backend
 
+[![CI](https://github.com/yiguangchao/web3-wallet-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/yiguangchao/web3-wallet-backend/actions/workflows/ci.yml)
+![Java 17](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
+![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
+![MySQL 8](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
+
 Web3 Java 后端/区块链托管钱包服务。当前版本基于 Spring Boot + Web3j，提供平台 HD 充值地址分配、ETH/ERC-20 充值扫描与归集、内部资产账本、提现审核与广播等能力。
 
 ## 技术栈
@@ -30,8 +35,15 @@ Web3 Java 后端/区块链托管钱包服务。当前版本基于 Spring Boot + 
 
 ## 本地运行
 
+本地开发不强制安装 Docker。直接执行 `mvn test` 时，单元测试和 Service 测试始终运行；Docker 不可用时，Testcontainers 集成测试会按 JUnit assumption 跳过。GitHub Actions CI 使用 Docker 完整执行 MySQL、Redis、Flyway 和 Anvil 区块链集成测试，并禁止任何测试被跳过。详细说明见 [`docs/ci-testing.md`](docs/ci-testing.md)。
+
+```text
+Local Development: No Docker required
+CI: Docker based integration testing
+```
+
 1. 安装 JDK 17 和 Maven。
-2. 启动 MySQL 与 Redis：
+2. 运行应用时，启动 MySQL 与 Redis：
 
 ```bash
 docker compose up -d mysql redis

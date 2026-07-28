@@ -1,0 +1,213 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wallet
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      CI: true
+      EVM_RPC_URL: http://127.0.0.1:8545
+      EVM_CHAIN_ID: 31337
+      EVM_ERC20_ARTIFACT: ${{ runner.temp }}/forge-out/TestToken.sol/TestToken.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17 and Maven cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Verify Java and Maven
+        run: |
+          java -version
+          mvn --version
+
+      - name: Docker available
+        run: |
+          docker version
+          docker info
+
+      - name: Verify MySQL and Redis services
+        run: |
+          docker exec "${{ job.services.mysql.id }}" mysqladmin ping -h 127.0.0.1 -proot
+          docker exec "${{ job.services.redis.id }}" redis-cli ping
+
+      - name: Start Anvil and compile the test ERC-20
+        run: |
+          mkdir -p "${{ runner.temp }}/forge-out"
+          docker run --detach --name anvil-ci \
+            --entrypoint anvil \
+            --publish 8545:8545 \
+            ghcr.io/foundry-rs/foundry:latest \
+            --host 0.0.0.0 --chain-id 31337 --block-time 1
+          docker run --rm \
+            --entrypoint forge \
+            --volume "${{ github.workspace }}:/workspace" \
+            --volume "${{ runner.temp }}/forge-out:/forge-out" \
+            --workdir /workspace \
+            ghcr.io/foundry-rs/foundry:latest \
+            build --root /workspace/src/test/evm --out /forge-out
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error \
+              --header 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' \
+              "$EVM_RPC_URL" | grep --quiet '0x7a69'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs anvil-ci
+          exit 1
+
+      - name: Build
+        id: tests
+        continue-on-error: true
+        run: mvn --batch-mode --no-transfer-progress clean test
+
+      - name: Unit Tests
+        id: unit_tests
+        if: always()
+        continue-on-error: true
+        run: >-
+          python3 scripts/ci_test_summary.py
+          --reports target/surefire-reports
+          --require com.example.wallet.infrastructure.security.JwtTokenProviderTest#shouldCreateAndParseToken
+
+      - name: Service Tests
+        id: service_tests
+        if: always()
+        continue-on-error: true
+        run: >-
+          python3 scripts/ci_test_summary.py
+          --reports target/surefire-reports
+          --require com.example.wallet.module.asset.service.impl.AssetServiceImplTest#shouldCreditDepositAndPreserveBalanceInvariant
+
+      - name: Flyway Migration Tests
+        id: flyway_tests
+        if: always()
+        continue-on-error: true
+        run: >-
+          python3 scripts/ci_test_summary.py
+          --reports target/surefire-reports
+          --require com.example.wallet.migration.FlywayMySqlMigrationTest#shouldMigrateEmptyDatabaseFromV1ToLatest
+
+      - name: MySQL Integration Tests
+        id: mysql_tests
+        if: always()
+        continue-on-error: true
+        run: >-
+          python3 scripts/ci_test_summary.py
+          --reports target/surefire-reports
+          --require com.example.wallet.Web3WalletApplicationIntegrationTest#shouldCreateOnlyOneNativeAssetAccountUnderConcurrentCredits
+
+      - name: Redis Tests
+        id: redis_tests
+        if: always()
+        continue-on-error: true
+        run: >-
+          python3 scripts/ci_test_summary.py
+          --reports target/surefire-reports
+          --require com.example.wallet.Web3WalletApplicationIntegrationTest#shouldReadAndWriteRedis
+
+      - name: Blockchain Integration Tests
+        id: blockchain_tests
+        if: always()
+        continue-on-error: true
+        run: >-
+          python3 scripts/ci_test_summary.py
+          --reports target/surefire-reports
+          --require com.example.wallet.infrastructure.web3.AnvilBlockchainIntegrationTest#shouldTransferEthAndReachConfirmations
+          --require com.example.wallet.infrastructure.web3.AnvilBlockchainIntegrationTest#shouldDeployAndTransferErc20
+
+      - name: Test Results
+        id: report
+        if: always()
+        continue-on-error: true
+        run: >-
+          python3 scripts/ci_test_summary.py
+          --reports target/surefire-reports
+          --fail-on-skipped
+          --write-summary
+
+      - name: Upload Surefire reports
+        if: >-
+          always() &&
+          (steps.tests.outcome != 'success' ||
+           steps.unit_tests.outcome != 'success' ||
+           steps.service_tests.outcome != 'success' ||
+           steps.flyway_tests.outcome != 'success' ||
+           steps.mysql_tests.outcome != 'success' ||
+           steps.redis_tests.outcome != 'success' ||
+           steps.blockchain_tests.outcome != 'success' ||
+           steps.report.outcome != 'success')
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Show Anvil logs on failure
+        if: >-
+          always() &&
+          (steps.tests.outcome != 'success' || steps.blockchain_tests.outcome != 'success')
+        run: docker logs anvil-ci
+
+      - name: Enforce CI result
+        if: always()
+        env:
+          BUILD_RESULT: ${{ steps.tests.outcome }}
+          UNIT_RESULT: ${{ steps.unit_tests.outcome }}
+          SERVICE_RESULT: ${{ steps.service_tests.outcome }}
+          FLYWAY_RESULT: ${{ steps.flyway_tests.outcome }}
+          MYSQL_RESULT: ${{ steps.mysql_tests.outcome }}
+          REDIS_RESULT: ${{ steps.redis_tests.outcome }}
+          BLOCKCHAIN_RESULT: ${{ steps.blockchain_tests.outcome }}
+          REPORT_RESULT: ${{ steps.report.outcome }}
+        run: |
+          for result in \
+            "$BUILD_RESULT" "$UNIT_RESULT" "$SERVICE_RESULT" "$FLYWAY_RESULT" \
+            "$MYSQL_RESULT" "$REDIS_RESULT" "$BLOCKCHAIN_RESULT" "$REPORT_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "A required CI check failed: $result"
+              exit 1
+            fi
+          done
