@@ -1,11 +1,12 @@
 package com.example.wallet.module.deposit.scanner;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
+import com.example.wallet.infrastructure.web3.Web3Properties;
+import com.example.wallet.module.asset.entity.SupportedAsset;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
-import com.example.wallet.module.deposit.config.DepositScanProperties.Token;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.wallet.entity.CustodyDepositAddress;
 import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
@@ -46,17 +47,23 @@ public class DepositBlockScanner {
     private final DepositScanProperties properties;
     private final DepositScanPersistenceService persistenceService;
     private final RedisDistributedLock distributedLock;
+    private final SupportedAssetService supportedAssetService;
+    private final Web3Properties web3Properties;
 
     public DepositBlockScanner(Web3j web3j,
                                CustodyDepositAddressMapper depositAddressMapper,
                                DepositScanProperties properties,
                                DepositScanPersistenceService persistenceService,
-                               RedisDistributedLock distributedLock) {
+                               RedisDistributedLock distributedLock,
+                               SupportedAssetService supportedAssetService,
+                               Web3Properties web3Properties) {
         this.web3j = web3j;
         this.depositAddressMapper = depositAddressMapper;
         this.properties = properties;
         this.persistenceService = persistenceService;
         this.distributedLock = distributedLock;
+        this.supportedAssetService = supportedAssetService;
+        this.web3Properties = web3Properties;
     }
 
     @Scheduled(fixedDelayString = "${wallet.scan.fixed-delay:15000}")
@@ -161,8 +168,9 @@ public class DepositBlockScanner {
     }
 
     private void updateConfirmations(BigInteger latestBlock) throws Exception {
-        int required = properties.getConfirmBlocks();
         for (DepositOrder order : persistenceService.listPendingOrders()) {
+            SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
+            int required = asset.getConfirmationBlocks();
             BigInteger confirmations = latestBlock.subtract(order.getBlockNumber()).add(BigInteger.ONE);
             int count = confirmations.max(BigInteger.ZERO)
                     .min(BigInteger.valueOf(Integer.MAX_VALUE)).intValue();
@@ -178,9 +186,8 @@ public class DepositBlockScanner {
     }
 
     private Map<String, CustodyDepositAddress> loadWallets() {
-        List<CustodyDepositAddress> addresses = depositAddressMapper.selectList(
-                new LambdaQueryWrapper<CustodyDepositAddress>()
-                        .eq(CustodyDepositAddress::getChain, properties.getScan().getChain()));
+        List<CustodyDepositAddress> addresses = depositAddressMapper
+                .selectActivePlatformDepositAddresses(properties.getScan().getChain());
         Map<String, CustodyDepositAddress> result = new HashMap<>();
         for (CustodyDepositAddress address : addresses) {
             result.put(normalize(address.getAddress()), address);
@@ -191,6 +198,12 @@ public class DepositBlockScanner {
     private void collectEthDeposits(EthBlock.Block block,
                                     Map<String, CustodyDepositAddress> wallets,
                                     List<DetectedDeposit> deposits) throws Exception {
+        SupportedAsset asset = supportedAssetService.getRequiredNativeAsset(web3Properties.getChainId());
+        requireConfiguredChain(asset);
+        if (!Boolean.TRUE.equals(asset.getDepositEnabled())) {
+            log.debug("Native asset {} is not enabled for deposits", asset.getAssetCode());
+            return;
+        }
         for (EthBlock.TransactionResult<?> result : block.getTransactions()) {
             EthBlock.TransactionObject transaction = (EthBlock.TransactionObject) result.get();
             if (!StringUtils.hasText(transaction.getTo()) || transaction.getValue().signum() <= 0) {
@@ -201,7 +214,7 @@ public class DepositBlockScanner {
                 continue;
             }
             deposits.add(new DetectedDeposit(
-                    wallet.getUserId(), properties.getScan().getChain(), "ETH", null,
+                    wallet.getUserId(), asset.getId(), asset.getChain(), asset.getSymbol(), null,
                     transaction.getFrom(), transaction.getTo(),
                     Convert.fromWei(new BigDecimal(transaction.getValue()), Convert.Unit.ETHER),
                     transaction.getHash(), ETH_LOG_INDEX, block.getNumber(), block.getHash()));
@@ -212,15 +225,13 @@ public class DepositBlockScanner {
                                       BigInteger toBlock,
                                       Map<String, CustodyDepositAddress> wallets,
                                       List<DetectedDeposit> deposits) throws Exception {
-        for (Token token : properties.getScan().getTokens()) {
-            if (!validToken(token)) {
-                log.warn("Ignoring invalid token scan configuration: {}", token.getSymbol());
-                continue;
-            }
+        for (SupportedAsset asset : supportedAssetService
+                .listDepositEnabledErc20(web3Properties.getChainId())) {
+            requireConfiguredChain(asset);
             EthFilter filter = new EthFilter(
                     DefaultBlockParameter.valueOf(fromBlock),
                     DefaultBlockParameter.valueOf(toBlock),
-                    token.getAddress());
+                    asset.getTokenAddress());
             filter.addSingleTopic(TRANSFER_TOPIC);
             EthLog response = web3j.ethGetLogs(filter).send();
             if (response.hasError()) {
@@ -241,9 +252,9 @@ public class DepositBlockScanner {
                     continue;
                 }
                 deposits.add(new DetectedDeposit(
-                        wallet.getUserId(), properties.getScan().getChain(), token.getSymbol(),
-                        normalize(token.getAddress()), topicAddress(event.getTopics().get(1)), toAddress,
-                        new BigDecimal(rawAmount).movePointLeft(token.getDecimals()),
+                        wallet.getUserId(), asset.getId(), asset.getChain(), asset.getSymbol(),
+                        asset.getTokenAddress(), topicAddress(event.getTopics().get(1)), toAddress,
+                        new BigDecimal(rawAmount).movePointLeft(asset.getDecimals()),
                         event.getTransactionHash(), event.getLogIndex(), event.getBlockNumber(), event.getBlockHash()));
             }
         }
@@ -265,20 +276,17 @@ public class DepositBlockScanner {
         return response.getBlock();
     }
 
-    private boolean validToken(Token token) {
-        return StringUtils.hasText(token.getSymbol())
-                && token.getAddress() != null
-                && token.getAddress().matches("^0x[0-9a-fA-F]{40}$")
-                && token.getDecimals() != null
-                && token.getDecimals() >= 0
-                && token.getDecimals() <= 36;
-    }
-
     private String topicAddress(String topic) {
         return "0x" + Numeric.cleanHexPrefix(topic).substring(24);
     }
 
     private String normalize(String address) {
         return address.toLowerCase(Locale.ROOT);
+    }
+
+    private void requireConfiguredChain(SupportedAsset asset) {
+        if (!properties.getScan().getChain().equals(asset.getChain())) {
+            throw new IllegalStateException("scan chain does not match supported asset registry");
+        }
     }
 }

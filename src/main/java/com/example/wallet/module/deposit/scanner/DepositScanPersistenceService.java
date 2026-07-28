@@ -1,21 +1,28 @@
 package com.example.wallet.module.deposit.scanner;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.wallet.common.exception.BizException;
+import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.service.AssetService;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
 import com.example.wallet.module.chain.mapper.ChainBlockScanRecordMapper;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
-import com.example.wallet.module.wallet.service.CustodySweepService;
 import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class DepositScanPersistenceService {
+
+    private static final Logger log = LoggerFactory.getLogger(DepositScanPersistenceService.class);
 
     public static final int STATUS_PENDING = 0;
     public static final int STATUS_CONFIRMED = 1;
@@ -24,19 +31,19 @@ public class DepositScanPersistenceService {
     private final ChainBlockScanRecordMapper scanRecordMapper;
     private final DepositOrderMapper depositOrderMapper;
     private final AssetService assetService;
+    private final SupportedAssetService supportedAssetService;
     private final DepositScanProperties properties;
-    private final CustodySweepService custodySweepService;
 
     public DepositScanPersistenceService(ChainBlockScanRecordMapper scanRecordMapper,
                                          DepositOrderMapper depositOrderMapper,
                                          AssetService assetService,
-                                         DepositScanProperties properties,
-                                         CustodySweepService custodySweepService) {
+                                         SupportedAssetService supportedAssetService,
+                                         DepositScanProperties properties) {
         this.scanRecordMapper = scanRecordMapper;
         this.depositOrderMapper = depositOrderMapper;
         this.assetService = assetService;
+        this.supportedAssetService = supportedAssetService;
         this.properties = properties;
-        this.custodySweepService = custodySweepService;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -63,6 +70,13 @@ public class DepositScanPersistenceService {
     public void saveBatch(List<DetectedDeposit> deposits, BigInteger blockNumber, String blockHash) {
         LocalDateTime now = LocalDateTime.now();
         for (DetectedDeposit detected : deposits) {
+            SupportedAsset asset = supportedAssetService.getRequiredDepositAsset(detected.assetId());
+            validateDetectedAsset(detected, asset);
+            if (detected.amount().compareTo(asset.getMinDeposit()) < 0) {
+                log.warn("Ignoring deposit below minimum: assetCode={}, txHash={}, logIndex={}, amount={}",
+                        asset.getAssetCode(), detected.txHash(), detected.logIndex(), detected.amount());
+                continue;
+            }
             boolean exists = depositOrderMapper.selectCount(new LambdaQueryWrapper<DepositOrder>()
                     .eq(DepositOrder::getChain, detected.chain())
                     .eq(DepositOrder::getTxHash, detected.txHash())
@@ -72,9 +86,10 @@ public class DepositScanPersistenceService {
             }
             DepositOrder order = new DepositOrder();
             order.setUserId(detected.userId());
-            order.setChain(detected.chain());
-            order.setTokenSymbol(detected.tokenSymbol());
-            order.setTokenAddress(detected.tokenAddress());
+            order.setAssetId(asset.getId());
+            order.setChain(asset.getChain());
+            order.setTokenSymbol(asset.getSymbol());
+            order.setTokenAddress(asset.getTokenAddress());
             order.setFromAddress(detected.fromAddress());
             order.setToAddress(detected.toAddress());
             order.setAmount(detected.amount());
@@ -84,6 +99,7 @@ public class DepositScanPersistenceService {
             order.setBlockHash(detected.blockHash());
             order.setConfirmCount(0);
             order.setStatus(STATUS_PENDING);
+            order.setSweepTaskStatus(0);
             order.setCreatedAt(now);
             order.setUpdatedAt(now);
             depositOrderMapper.insert(order);
@@ -116,15 +132,18 @@ public class DepositScanPersistenceService {
         }
         if (!canonical) {
             order.setStatus(STATUS_REORGED);
-        } else if (confirmCount >= properties.getConfirmBlocks()) {
-            int updated = depositOrderMapper.markConfirmedIfPending(orderId, confirmCount, LocalDateTime.now());
-            if (updated == 0) {
+        } else {
+            SupportedAsset asset = supportedAssetService.getRequiredDepositAsset(order.getAssetId());
+            int requiredConfirmations = asset.getConfirmationBlocks();
+            if (confirmCount >= requiredConfirmations) {
+                int updated = depositOrderMapper.markConfirmedIfPending(orderId, confirmCount, LocalDateTime.now());
+                if (updated == 0) {
+                    return;
+                }
+                assetService.creditDeposit(order.getUserId(), asset,
+                        order.getAmount(), order.getId(), order.getTxHash());
                 return;
             }
-            assetService.creditDeposit(order.getUserId(), order.getChain(), order.getTokenSymbol(),
-                    order.getTokenAddress(), order.getAmount(), order.getId(), order.getTxHash());
-            custodySweepService.schedule(order);
-            return;
         }
         order.setConfirmCount(confirmCount);
         order.setUpdatedAt(LocalDateTime.now());
@@ -137,8 +156,8 @@ public class DepositScanPersistenceService {
         if (order == null || order.getStatus() != STATUS_CONFIRMED) {
             return;
         }
-        assetService.reverseDeposit(order.getUserId(), order.getChain(), order.getTokenSymbol(),
-                order.getTokenAddress(), order.getAmount(), order.getId(), order.getTxHash());
+        SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
+        assetService.reverseDeposit(order.getUserId(), asset, order.getId(), order.getTxHash());
         order.setStatus(STATUS_REORGED);
         order.setUpdatedAt(LocalDateTime.now());
         depositOrderMapper.updateById(order);
@@ -164,5 +183,14 @@ public class DepositScanPersistenceService {
         record.setConfirmedBlock(confirmedBlock.max(BigInteger.ZERO));
         record.setUpdatedAt(LocalDateTime.now());
         scanRecordMapper.updateById(record);
+    }
+
+    private void validateDetectedAsset(DetectedDeposit detected, SupportedAsset asset) {
+        boolean sameToken = !StringUtils.hasText(asset.getTokenAddress())
+                ? !StringUtils.hasText(detected.tokenAddress())
+                : asset.getTokenAddress().equalsIgnoreCase(detected.tokenAddress());
+        if (!asset.getChain().equals(detected.chain()) || !sameToken) {
+            throw new BizException("detected deposit asset metadata does not match registry");
+        }
     }
 }

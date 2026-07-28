@@ -5,6 +5,7 @@ import java.math.BigInteger;
 
 public record DetectedDeposit(
         Long userId,
+        Long assetId,
         String chain,
         String tokenSymbol,
         String tokenAddress,

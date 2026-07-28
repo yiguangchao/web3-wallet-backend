@@ -15,6 +15,7 @@ public class DepositOrder {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private Long userId;
+    private Long assetId;
     private String chain;
     private String tokenSymbol;
     private String tokenAddress;
@@ -27,6 +28,7 @@ public class DepositOrder {
     private String blockHash;
     private Integer confirmCount;
     private Integer status;
+    private Integer sweepTaskStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
