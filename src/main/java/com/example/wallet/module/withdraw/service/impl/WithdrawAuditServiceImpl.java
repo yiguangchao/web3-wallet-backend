@@ -3,6 +3,7 @@ package com.example.wallet.module.withdraw.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.wallet.common.api.AuditActor;
 import com.example.wallet.common.api.AuditActorProvider;
+import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.mapper.WithdrawOperationLogMapper;
 import com.example.wallet.module.withdraw.service.WithdrawAuditService;
@@ -35,7 +36,9 @@ public class WithdrawAuditServiceImpl implements WithdrawAuditService {
         log.setAfterStatus(afterStatus);
         log.setRemark(remark);
         log.setCreatedAt(LocalDateTime.now());
-        logMapper.insert(log);
+        if (logMapper.insert(log) != 1) {
+            throw new BizException("withdraw audit log creation failed");
+        }
     }
 
     @Override

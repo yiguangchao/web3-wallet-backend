@@ -227,6 +227,37 @@ total = available + frozen
 
 升级生产数据库前，先执行只读检查脚本 `docs/sql/V9__asset_ledger_preflight.sql`，确认历史账户、提现订单和流水满足 V9 约束后再执行 Flyway 迁移。
 
+## 提现状态机与权限
+
+V10 将提现订单状态固定为以下单向流程：
+
+```text
+PENDING_REVIEW(0) -> APPROVED(6) -> SIGNING(7) -> SIGNED(8)
+                  -> BROADCASTING(1) -> BROADCASTED(2)
+                  -> MINED(9) -> CONFIRMED(3)
+PENDING_REVIEW(0) -> REJECTED(5)
+任意非终态发生不确定异常 -> MANUAL_REVIEW(4)
+```
+
+`CONFIRMED`、`REJECTED` 和 `MANUAL_REVIEW` 当前都是终态。每次迁移使用 `WHERE id = ? AND status = ?` 条件更新并严格校验影响行数，未声明的状态边直接拒绝；成功迁移后记录操作人、角色、IP、前后状态和备注。审核拒绝只允许从 `PENDING_REVIEW` 发生，并与冻结资金释放处于同一事务；进入 `MANUAL_REVIEW` 时不自动释放资金。
+
+现有链服务仍将签名和广播封装在同一个调用中，本阶段先通过订单状态和审计记录建立编排边界。成功回执先把订单推进到 `MINED`，下一次同步才在同一事务内扣减冻结资金并推进到 `CONFIRMED`，避免“链上已打包”和“内部账本已最终结算”混成一个状态。
+
+后台权限：
+
+- `REVIEWER` 或 `ADMIN`：审核通过、审核拒绝。
+- `OPERATOR` 或 `ADMIN`：广播、同步链上状态。
+- 仅 `ADMIN`：查询提现审计日志。
+
+全局开关通过环境变量控制，币种级开关继续使用 `supported_asset.deposit_enabled` 和 `supported_asset.withdraw_enabled`；全局和币种开关必须同时开启：
+
+```powershell
+$env:WALLET_DEPOSIT_ENABLED="true"
+$env:WALLET_WITHDRAW_ENABLED="true"
+```
+
+升级 V10 前先执行 `docs/sql/V10__withdraw_state_preflight.sql`，确认历史失败订单的冻结明细已经释放。旧版 `PROCESSING` 无法证明广播结果，迁移时会进入 `MANUAL_REVIEW` 并继续冻结资金。
+
 ## 后续计划
 
 - Vault/KMS/HSM 或独立签名服务

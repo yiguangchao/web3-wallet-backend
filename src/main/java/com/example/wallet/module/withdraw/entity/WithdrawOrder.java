@@ -24,6 +24,8 @@ public class WithdrawOrder {
     private BigDecimal amount;
     private BigDecimal fee;
     private Integer status;
+    private LocalDateTime statusChangedAt;
+    private String manualReviewReason;
     private String txHash;
     private String remark;
     private LocalDateTime createdAt;

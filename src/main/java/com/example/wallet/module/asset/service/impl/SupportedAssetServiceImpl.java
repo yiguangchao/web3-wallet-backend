@@ -2,6 +2,7 @@ package com.example.wallet.module.asset.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.wallet.common.exception.BizException;
+import com.example.wallet.module.asset.config.AssetOperationProperties;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.entity.SupportedAssetType;
 import com.example.wallet.module.asset.mapper.SupportedAssetMapper;
@@ -17,9 +18,12 @@ public class SupportedAssetServiceImpl implements SupportedAssetService {
     private static final int ACTIVE = 1;
 
     private final SupportedAssetMapper assetMapper;
+    private final AssetOperationProperties operationProperties;
 
-    public SupportedAssetServiceImpl(SupportedAssetMapper assetMapper) {
+    public SupportedAssetServiceImpl(SupportedAssetMapper assetMapper,
+                                     AssetOperationProperties operationProperties) {
         this.assetMapper = assetMapper;
+        this.operationProperties = operationProperties;
     }
 
     @Override
@@ -62,6 +66,7 @@ public class SupportedAssetServiceImpl implements SupportedAssetService {
 
     @Override
     public SupportedAsset getRequiredDepositAsset(Long assetId) {
+        requireGlobalDepositEnabled();
         SupportedAsset asset = requireActive(getRequiredById(assetId));
         if (!Boolean.TRUE.equals(asset.getDepositEnabled())) {
             throw new BizException("asset deposit is disabled");
@@ -71,6 +76,7 @@ public class SupportedAssetServiceImpl implements SupportedAssetService {
 
     @Override
     public SupportedAsset getRequiredWithdrawAsset(String assetCode) {
+        requireGlobalWithdrawEnabled();
         SupportedAsset asset = getRequiredByAssetCode(assetCode);
         if (!Boolean.TRUE.equals(asset.getWithdrawEnabled())) {
             throw new BizException("asset withdrawal is disabled");
@@ -80,6 +86,7 @@ public class SupportedAssetServiceImpl implements SupportedAssetService {
 
     @Override
     public List<SupportedAsset> listDepositEnabledErc20(long chainId) {
+        requireGlobalDepositEnabled();
         return assetMapper.selectList(new LambdaQueryWrapper<SupportedAsset>()
                 .eq(SupportedAsset::getChainId, chainId)
                 .eq(SupportedAsset::getAssetType, SupportedAssetType.ERC20.name())
@@ -95,5 +102,17 @@ public class SupportedAssetServiceImpl implements SupportedAssetService {
             throw new BizException("supported asset is disabled");
         }
         return asset;
+    }
+
+    private void requireGlobalDepositEnabled() {
+        if (!operationProperties.isDepositEnabled()) {
+            throw new BizException("global deposit is disabled");
+        }
+    }
+
+    private void requireGlobalWithdrawEnabled() {
+        if (!operationProperties.isWithdrawEnabled()) {
+            throw new BizException("global withdrawal is disabled");
+        }
     }
 }

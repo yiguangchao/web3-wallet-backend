@@ -10,12 +10,14 @@ import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
+import com.example.wallet.module.withdraw.exception.WithdrawManualReviewException;
 import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
 import com.example.wallet.module.withdraw.service.WithdrawService;
 import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -74,7 +76,10 @@ public class WithdrawServiceImpl implements WithdrawService {
         order.setRemark("withdraw asset frozen, waiting for review");
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
-        withdrawOrderMapper.insert(order);
+        order.setStatusChangedAt(now);
+        if (withdrawOrderMapper.insert(order) != 1) {
+            throw new BizException("withdraw order creation failed");
+        }
 
         assetService.freezeWithdrawal(userId, asset, request.getAmount(), order.getId());
         return order.getId();
@@ -88,118 +93,187 @@ public class WithdrawServiceImpl implements WithdrawService {
     }
 
     @Override
+    @PreAuthorize("hasAnyRole('REVIEWER', 'ADMIN')")
     @Transactional(rollbackFor = Exception.class)
     public Integer approveWithdraw(Long orderId, String remark) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
-        supportedAssetService.getRequiredById(order.getAssetId());
         if (order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
             return order.getStatus();
         }
-        if (!order.getStatus().equals(WithdrawStatus.PENDING_REVIEW.getCode())) {
-            throw new BizException("withdraw order status cannot be approved");
-        }
-        Integer beforeStatus = order.getStatus();
-        order.setStatus(WithdrawStatus.APPROVED.getCode());
-        order.setRemark(StringUtils.hasText(remark) ? remark : "withdraw approved, waiting for broadcast");
-        order.setUpdatedAt(LocalDateTime.now());
-        withdrawOrderMapper.updateById(order);
-        withdrawAuditService.record(orderId, "APPROVE", beforeStatus, order.getStatus(), order.getRemark());
+        supportedAssetService.getRequiredById(order.getAssetId());
+        transition(order, WithdrawStatus.PENDING_REVIEW, WithdrawStatus.APPROVED,
+                "APPROVE", StringUtils.hasText(remark)
+                        ? remark : "withdraw approved, waiting for signing", null, null);
         return order.getStatus();
     }
 
     @Override
+    @PreAuthorize("hasAnyRole('REVIEWER', 'ADMIN')")
     @Transactional(rollbackFor = Exception.class)
     public Integer rejectWithdraw(Long orderId, String remark) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
-        if (order.getStatus().equals(WithdrawStatus.CANCELLED.getCode())) {
+        if (order.getStatus().equals(WithdrawStatus.REJECTED.getCode())) {
             return order.getStatus();
         }
-        if (!order.getStatus().equals(WithdrawStatus.PENDING_REVIEW.getCode())
-                && !order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
+        if (!order.getStatus().equals(WithdrawStatus.PENDING_REVIEW.getCode())) {
             throw new BizException("withdraw order status cannot be rejected");
         }
-        Integer beforeStatus = order.getStatus();
         SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
         assetService.releaseWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
-        order.setStatus(WithdrawStatus.CANCELLED.getCode());
-        order.setRemark(StringUtils.hasText(remark) ? remark : "withdraw rejected, frozen asset released");
-        order.setUpdatedAt(LocalDateTime.now());
-        withdrawOrderMapper.updateById(order);
-        withdrawAuditService.record(orderId, "REJECT", beforeStatus, order.getStatus(), order.getRemark());
+        transition(order, WithdrawStatus.PENDING_REVIEW, WithdrawStatus.REJECTED,
+                "REJECT", StringUtils.hasText(remark)
+                        ? remark : "withdraw rejected, frozen asset released", null, null);
         return order.getStatus();
     }
+
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @PreAuthorize("hasAnyRole('OPERATOR', 'ADMIN')")
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = WithdrawManualReviewException.class)
     public String broadcastWithdraw(Long orderId) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
         if (order.getStatus().equals(WithdrawStatus.BROADCASTED.getCode()) && StringUtils.hasText(order.getTxHash())) {
             return order.getTxHash();
         }
-        if (!order.getStatus().equals(WithdrawStatus.APPROVED.getCode())
-                && !order.getStatus().equals(WithdrawStatus.PROCESSING.getCode())) {
+        if (!order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
             throw new BizException("withdraw order status cannot be broadcast");
         }
         SupportedAsset asset = supportedAssetService.getRequiredWithdrawAsset(
                 supportedAssetService.getRequiredById(order.getAssetId()).getAssetCode());
 
-        Integer beforeStatus = order.getStatus();
-        order.setStatus(WithdrawStatus.PROCESSING.getCode());
-        order.setRemark("withdraw transaction is being broadcast");
-        order.setUpdatedAt(LocalDateTime.now());
-        withdrawOrderMapper.updateById(order);
+        transition(order, WithdrawStatus.APPROVED, WithdrawStatus.SIGNING,
+                "START_SIGNING", "withdraw signing started", null, null);
+        transition(order, WithdrawStatus.SIGNING, WithdrawStatus.SIGNED,
+                "SIGNED", "withdraw signing completed", null, null);
+        transition(order, WithdrawStatus.SIGNED, WithdrawStatus.BROADCASTING,
+                "START_BROADCAST", "withdraw transaction is being broadcast", null, null);
 
-        String txHash = StringUtils.hasText(asset.getTokenAddress())
-                ? web3Service.broadcastErc20Transfer(asset.getTokenAddress(), order.getToAddress(),
-                order.getAmount(), asset.getDecimals())
-                : web3Service.broadcastEthTransfer(order.getToAddress(), order.getAmount());
-
-        order.setTxHash(txHash);
-        order.setStatus(WithdrawStatus.BROADCASTED.getCode());
-        order.setRemark("withdraw transaction broadcasted");
-        order.setUpdatedAt(LocalDateTime.now());
-        withdrawOrderMapper.updateById(order);
-        withdrawAuditService.record(orderId, "BROADCAST", beforeStatus, order.getStatus(), order.getRemark());
+        String txHash;
+        try {
+            txHash = StringUtils.hasText(asset.getTokenAddress())
+                    ? web3Service.broadcastErc20Transfer(asset.getTokenAddress(), order.getToAddress(),
+                    order.getAmount(), asset.getDecimals())
+                    : web3Service.broadcastEthTransfer(order.getToAddress(), order.getAmount());
+            if (!StringUtils.hasText(txHash)) {
+                throw new IllegalStateException("chain broadcaster returned an empty transaction hash");
+            }
+        } catch (RuntimeException ex) {
+            moveToManualReview(order, "withdraw broadcast result is uncertain", ex);
+            throw new WithdrawManualReviewException(
+                    "withdraw broadcast requires manual review", ex);
+        }
+        try {
+            transition(order, WithdrawStatus.BROADCASTING, WithdrawStatus.BROADCASTED,
+                    "BROADCASTED", "withdraw transaction broadcasted", txHash, null);
+        } catch (RuntimeException ex) {
+            order.setTxHash(txHash);
+            moveToManualReview(order,
+                    "transaction was broadcast but persistence did not complete", ex);
+            throw new WithdrawManualReviewException(
+                    "broadcasted withdrawal requires manual review", ex);
+        }
         return txHash;
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @PreAuthorize("hasAnyRole('OPERATOR', 'ADMIN')")
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = WithdrawManualReviewException.class)
     public Integer syncWithdrawStatus(Long orderId) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
         if (order.getStatus().equals(WithdrawStatus.CONFIRMED.getCode())
-                || order.getStatus().equals(WithdrawStatus.FAILED.getCode())
-                || order.getStatus().equals(WithdrawStatus.CANCELLED.getCode())) {
+                || order.getStatus().equals(WithdrawStatus.REJECTED.getCode())
+                || order.getStatus().equals(WithdrawStatus.MANUAL_REVIEW.getCode())) {
             return order.getStatus();
         }
+        if (order.getStatus().equals(WithdrawStatus.MINED.getCode())) {
+            return confirmMinedWithdrawal(order);
+        }
+        if (!order.getStatus().equals(WithdrawStatus.BROADCASTED.getCode())) {
+            throw new BizException("withdraw order status cannot be synchronized");
+        }
         if (!StringUtils.hasText(order.getTxHash())) {
-            throw new BizException("withdraw transaction hash is empty");
+            moveToManualReview(order, "broadcasted withdrawal has no transaction hash", null);
+            return order.getStatus();
         }
 
-        TransactionReceipt receipt = web3Service.getTransactionReceipt(order.getTxHash());
+        TransactionReceipt receipt;
+        try {
+            receipt = web3Service.getTransactionReceipt(order.getTxHash());
+        } catch (RuntimeException ex) {
+            moveToManualReview(order, "transaction receipt query failed", ex);
+            throw new WithdrawManualReviewException(
+                    "withdraw receipt query requires manual review", ex);
+        }
         if (receipt == null) {
             return order.getStatus();
         }
-
-        Integer beforeStatus = order.getStatus();
-        SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
-        if (receipt.isStatusOK()) {
-            assetService.confirmWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
-            order.setStatus(WithdrawStatus.CONFIRMED.getCode());
-            order.setRemark("withdraw transaction confirmed on chain");
-        } else {
-            assetService.releaseWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
-            order.setStatus(WithdrawStatus.FAILED.getCode());
-            order.setRemark("withdraw transaction failed on chain, frozen asset released");
+        if (!receipt.isStatusOK()) {
+            moveToManualReview(order, "withdraw transaction receipt indicates failure", null);
+            return order.getStatus();
         }
-        order.setUpdatedAt(LocalDateTime.now());
-        withdrawOrderMapper.updateById(order);
-        withdrawAuditService.record(orderId, "SYNC_STATUS", beforeStatus, order.getStatus(), order.getRemark());
+
+        transition(order, WithdrawStatus.BROADCASTED, WithdrawStatus.MINED,
+                "MINED", "withdraw transaction mined successfully", order.getTxHash(), null);
         return order.getStatus();
     }
 
     @Override
+    @PreAuthorize("hasRole('ADMIN')")
     public List<WithdrawOperationLog> listAuditLogs(Long orderId) {
         return withdrawAuditService.listByOrderId(orderId);
+    }
+
+    private Integer confirmMinedWithdrawal(WithdrawOrder order) {
+        SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
+        assetService.confirmWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
+        transition(order, WithdrawStatus.MINED, WithdrawStatus.CONFIRMED,
+                "CONFIRM", "withdraw transaction confirmed and frozen asset deducted",
+                order.getTxHash(), null);
+        return order.getStatus();
+    }
+
+    private void moveToManualReview(WithdrawOrder order, String reason, RuntimeException cause) {
+        String detail = cause == null || !StringUtils.hasText(cause.getMessage())
+                ? reason : reason + ": " + cause.getMessage();
+        if (detail.length() > 255) {
+            detail = detail.substring(0, 255);
+        }
+        WithdrawStatus current = WithdrawStatus.fromCode(order.getStatus());
+        transition(order, current, WithdrawStatus.MANUAL_REVIEW,
+                "MANUAL_REVIEW", detail, order.getTxHash(), detail);
+    }
+
+    private void transition(WithdrawOrder order,
+                            WithdrawStatus expected,
+                            WithdrawStatus target,
+                            String action,
+                            String remark,
+                            String txHash,
+                            String manualReviewReason) {
+        if (!Integer.valueOf(expected.getCode()).equals(order.getStatus())) {
+            throw new BizException("illegal withdraw status transition: "
+                    + WithdrawStatus.nameOf(order.getStatus()) + " -> " + target.name());
+        }
+        if (!expected.canTransitionTo(target)) {
+            throw new BizException("illegal withdraw status transition: "
+                    + expected.name() + " -> " + target.name());
+        }
+        LocalDateTime now = LocalDateTime.now();
+        int updated = withdrawOrderMapper.transitionStatus(
+                order.getId(), expected.getCode(), target.getCode(), txHash,
+                remark, manualReviewReason, now);
+        if (updated != 1) {
+            throw new BizException("withdraw order status changed concurrently");
+        }
+        Integer beforeStatus = order.getStatus();
+        order.setStatus(target.getCode());
+        if (StringUtils.hasText(txHash)) {
+            order.setTxHash(txHash);
+        }
+        order.setRemark(remark);
+        order.setManualReviewReason(manualReviewReason);
+        order.setStatusChangedAt(now);
+        order.setUpdatedAt(now);
+        withdrawAuditService.record(order.getId(), action, beforeStatus, target.getCode(), remark);
     }
 
     private WithdrawOrder requireOrderForUpdate(Long orderId) {

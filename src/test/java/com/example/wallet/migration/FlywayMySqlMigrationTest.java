@@ -36,7 +36,7 @@ class FlywayMySqlMigrationTest {
 
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("9");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("10");
         assertThat(count("SELECT COUNT(*) FROM supported_asset")).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM information_schema.tables "
                 + "WHERE table_schema = DATABASE() AND table_name = 'asset_freeze_detail'"))
@@ -60,7 +60,7 @@ class FlywayMySqlMigrationTest {
         Flyway latest = flyway(null);
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("9");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("10");
         assertThat(count("SELECT COUNT(*) FROM asset_account WHERE asset_id = 7001")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM wallet_address WHERE verified_at IS NULL")).isEqualTo(1);
     }
@@ -107,17 +107,22 @@ class FlywayMySqlMigrationTest {
                 + "(id,user_id,asset_id,chain,token_symbol,to_address,amount,fee,status,tx_hash) VALUES "
                 + "(1,10,7001,'ETH_SEPOLIA','ETH','0x1111111111111111111111111111111111111111',1,0.1,0,NULL),"
                 + "(2,10,7001,'ETH_SEPOLIA','ETH','0x2222222222222222222222222222222222222222',2,0.1,3,'0xconfirmed'),"
-                + "(3,10,7001,'ETH_SEPOLIA','ETH','0x3333333333333333333333333333333333333333',3,0.1,4,'0xfailed')");
+                + "(3,10,7001,'ETH_SEPOLIA','ETH','0x3333333333333333333333333333333333333333',3,0.1,4,'0xfailed'),"
+                + "(4,10,7001,'ETH_SEPOLIA','ETH','0x4444444444444444444444444444444444444444',4,0.1,1,NULL)");
 
         flyway(null).migrate();
 
-        assertThat(count("SELECT COUNT(*) FROM asset_freeze_detail WHERE status = 0")).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM asset_freeze_detail WHERE status = 0")).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM asset_freeze_detail WHERE status = 1 "
                 + "AND settled_at IS NOT NULL")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM asset_freeze_detail WHERE status = 2 "
                 + "AND settled_at IS NOT NULL")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM asset_freeze_detail "
-                + "WHERE frozen_amount = principal_amount + fee_amount")).isEqualTo(3);
+                + "WHERE frozen_amount = principal_amount + fee_amount")).isEqualTo(4);
+        assertThat(count("SELECT COUNT(*) FROM withdraw_order WHERE id = 3 AND status = 5 "
+                + "AND status_changed_at IS NOT NULL")).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM withdraw_order WHERE id = 4 AND status = 4 "
+                + "AND manual_review_reason IS NOT NULL")).isEqualTo(1);
     }
 
     @Test
@@ -174,6 +179,25 @@ class FlywayMySqlMigrationTest {
                 + "frozen_amount,status,frozen_at) VALUES "
                 + "(3,10,7001,'WITHDRAW',201,1,0.1,1.2,0,NOW())"))
                 .isInstanceOf(SQLException.class);
+    }
+
+    @Test
+    void shouldEnforceWithdrawStateAndManualReviewReason() throws Exception {
+        flyway(null).migrate();
+
+        assertThatThrownBy(() -> execute("INSERT INTO withdraw_order "
+                + "(id,user_id,asset_id,chain,token_symbol,to_address,amount,fee,status) VALUES "
+                + "(1,10,7001,'ETH_SEPOLIA','ETH','0x1111111111111111111111111111111111111111',1,0.1,4)"))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("INSERT INTO withdraw_order "
+                + "(id,user_id,asset_id,chain,token_symbol,to_address,amount,fee,status) VALUES "
+                + "(2,10,7001,'ETH_SEPOLIA','ETH','0x2222222222222222222222222222222222222222',1,0.1,10)"))
+                .isInstanceOf(SQLException.class);
+        execute("INSERT INTO withdraw_order "
+                + "(id,user_id,asset_id,chain,token_symbol,to_address,amount,fee,status,manual_review_reason) VALUES "
+                + "(3,10,7001,'ETH_SEPOLIA','ETH','0x3333333333333333333333333333333333333333',1,0.1,4,'rpc uncertain')");
+        assertThat(count("SELECT COUNT(*) FROM withdraw_order WHERE id = 3 AND status = 4"))
+                .isEqualTo(1);
     }
 
     private Flyway flyway(String target) {

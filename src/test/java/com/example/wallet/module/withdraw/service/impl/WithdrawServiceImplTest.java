@@ -3,6 +3,8 @@ package com.example.wallet.module.withdraw.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -18,6 +20,7 @@ import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
+import com.example.wallet.module.withdraw.exception.WithdrawManualReviewException;
 import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
 import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import java.math.BigDecimal;
@@ -53,6 +56,9 @@ class WithdrawServiceImplTest {
     void setUp() {
         withdrawService = new WithdrawServiceImpl(
                 withdrawOrderMapper, web3Service, assetService, supportedAssetService, withdrawAuditService);
+        lenient().when(withdrawOrderMapper.insert(any(WithdrawOrder.class))).thenReturn(1);
+        lenient().when(withdrawOrderMapper.transitionStatus(
+                any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
     }
 
     @Test
@@ -135,7 +141,10 @@ class WithdrawServiceImplTest {
 
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.APPROVED.getCode());
         assertThat(order.getRemark()).isEqualTo("risk review passed");
-        verify(withdrawOrderMapper).updateById(order);
+        verify(withdrawOrderMapper).transitionStatus(
+                eq(99L), eq(WithdrawStatus.PENDING_REVIEW.getCode()),
+                eq(WithdrawStatus.APPROVED.getCode()), eq(null), eq("risk review passed"),
+                eq(null), any());
         verify(withdrawAuditService).record(99L, "APPROVE", WithdrawStatus.PENDING_REVIEW.getCode(),
                 WithdrawStatus.APPROVED.getCode(), "risk review passed");
     }
@@ -148,14 +157,45 @@ class WithdrawServiceImplTest {
         when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
 
         assertThat(withdrawService.rejectWithdraw(99L, "risk review rejected"))
-                .isEqualTo(WithdrawStatus.CANCELLED.getCode());
+                .isEqualTo(WithdrawStatus.REJECTED.getCode());
 
         verify(assetService).releaseWithdrawal(1L, asset, 99L, null);
-        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.CANCELLED.getCode());
+        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.REJECTED.getCode());
         assertThat(order.getRemark()).isEqualTo("risk review rejected");
-        verify(withdrawOrderMapper).updateById(order);
+        verify(withdrawOrderMapper).transitionStatus(
+                eq(99L), eq(WithdrawStatus.PENDING_REVIEW.getCode()),
+                eq(WithdrawStatus.REJECTED.getCode()), eq(null), eq("risk review rejected"),
+                eq(null), any());
         verify(withdrawAuditService).record(99L, "REJECT", WithdrawStatus.PENDING_REVIEW.getCode(),
-                WithdrawStatus.CANCELLED.getCode(), "risk review rejected");
+                WithdrawStatus.REJECTED.getCode(), "risk review rejected");
+    }
+
+    @Test
+    void shouldRejectApprovalWhenConditionalUpdateLosesRace() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.PENDING_REVIEW.getCode());
+        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(ethAsset());
+        when(withdrawOrderMapper.transitionStatus(
+                any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> withdrawService.approveWithdraw(99L, null))
+                .isInstanceOf(BizException.class)
+                .hasMessage("withdraw order status changed concurrently");
+
+        verifyNoInteractions(withdrawAuditService);
+        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.PENDING_REVIEW.getCode());
+    }
+
+    @Test
+    void shouldNotRejectAfterApproval() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
+        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+
+        assertThatThrownBy(() -> withdrawService.rejectWithdraw(99L, "late rejection"))
+                .isInstanceOf(BizException.class)
+                .hasMessage("withdraw order status cannot be rejected");
+
+        verifyNoInteractions(assetService, supportedAssetService, withdrawAuditService);
     }
 
     @Test
@@ -168,7 +208,7 @@ class WithdrawServiceImplTest {
                 .hasMessage("withdraw order status cannot be broadcast");
 
         verifyNoInteractions(web3Service, assetService);
-        verify(withdrawOrderMapper, never()).updateById(any(WithdrawOrder.class));
+        verify(withdrawOrderMapper, never()).transitionStatus(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -184,9 +224,20 @@ class WithdrawServiceImplTest {
 
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.BROADCASTED.getCode());
         assertThat(order.getTxHash()).isEqualTo(TX_HASH);
-        verify(withdrawOrderMapper, times(2)).updateById(order);
-        verify(withdrawAuditService).record(99L, "BROADCAST", WithdrawStatus.APPROVED.getCode(),
-                WithdrawStatus.BROADCASTED.getCode(), "withdraw transaction broadcasted");
+        verify(withdrawOrderMapper, times(4)).transitionStatus(
+                eq(99L), any(), any(), any(), any(), any(), any());
+        verify(withdrawAuditService).record(99L, "START_SIGNING",
+                WithdrawStatus.APPROVED.getCode(), WithdrawStatus.SIGNING.getCode(),
+                "withdraw signing started");
+        verify(withdrawAuditService).record(99L, "SIGNED",
+                WithdrawStatus.SIGNING.getCode(), WithdrawStatus.SIGNED.getCode(),
+                "withdraw signing completed");
+        verify(withdrawAuditService).record(99L, "START_BROADCAST",
+                WithdrawStatus.SIGNED.getCode(), WithdrawStatus.BROADCASTING.getCode(),
+                "withdraw transaction is being broadcast");
+        verify(withdrawAuditService).record(99L, "BROADCASTED",
+                WithdrawStatus.BROADCASTING.getCode(), WithdrawStatus.BROADCASTED.getCode(),
+                "withdraw transaction broadcasted");
     }
 
     @Test
@@ -198,41 +249,119 @@ class WithdrawServiceImplTest {
         assertThat(withdrawService.broadcastWithdraw(99L)).isEqualTo(TX_HASH);
 
         verifyNoInteractions(web3Service, assetService);
-        verify(withdrawOrderMapper, never()).updateById(any(WithdrawOrder.class));
+        verify(withdrawOrderMapper, never()).transitionStatus(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    void shouldConfirmWithdrawOrderWhenReceiptIsSuccessful() {
+    void shouldMoveBroadcastExceptionToManualReview() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
+        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        SupportedAsset asset = ethAsset();
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
+        when(supportedAssetService.getRequiredWithdrawAsset("ETH")).thenReturn(asset);
+        when(web3Service.broadcastEthTransfer(TO_ADDRESS, order.getAmount()))
+                .thenThrow(new IllegalStateException("rpc timeout"));
+
+        assertThatThrownBy(() -> withdrawService.broadcastWithdraw(99L))
+                .isInstanceOf(WithdrawManualReviewException.class)
+                .hasMessage("withdraw broadcast requires manual review");
+
+        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
+        assertThat(order.getManualReviewReason()).contains("rpc timeout");
+        verifyNoInteractions(assetService);
+        verify(withdrawOrderMapper, times(4)).transitionStatus(
+                eq(99L), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldMoveToManualReviewWhenBroadcastSucceededButStatusPersistenceLostRace() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
+        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        SupportedAsset asset = ethAsset();
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
+        when(supportedAssetService.getRequiredWithdrawAsset("ETH")).thenReturn(asset);
+        when(web3Service.broadcastEthTransfer(TO_ADDRESS, order.getAmount())).thenReturn(TX_HASH);
+        when(withdrawOrderMapper.transitionStatus(
+                any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1, 1, 1, 0, 1);
+
+        assertThatThrownBy(() -> withdrawService.broadcastWithdraw(99L))
+                .isInstanceOf(WithdrawManualReviewException.class)
+                .hasMessage("broadcasted withdrawal requires manual review");
+
+        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
+        assertThat(order.getTxHash()).isEqualTo(TX_HASH);
+        assertThat(order.getManualReviewReason())
+                .contains("transaction was broadcast but persistence did not complete");
+        verify(withdrawOrderMapper, times(5)).transitionStatus(
+                eq(99L), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldMarkSuccessfulReceiptAsMinedBeforeConfirmingFunds() {
         WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
         order.setTxHash(TX_HASH);
         TransactionReceipt receipt = new TransactionReceipt();
         receipt.setStatus("0x1");
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
         when(web3Service.getTransactionReceipt(TX_HASH)).thenReturn(receipt);
+        assertThat(withdrawService.syncWithdrawStatus(99L)).isEqualTo(WithdrawStatus.MINED.getCode());
+
+        verifyNoInteractions(assetService);
+        verify(withdrawOrderMapper).transitionStatus(
+                eq(99L), eq(WithdrawStatus.BROADCASTED.getCode()),
+                eq(WithdrawStatus.MINED.getCode()), eq(TX_HASH),
+                eq("withdraw transaction mined successfully"), eq(null), any());
+    }
+
+    @Test
+    void shouldConfirmMinedWithdrawalAndDeductFrozenFunds() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.MINED.getCode());
+        order.setTxHash(TX_HASH);
+        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
         SupportedAsset asset = ethAsset();
         when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
 
         assertThat(withdrawService.syncWithdrawStatus(99L)).isEqualTo(WithdrawStatus.CONFIRMED.getCode());
 
         verify(assetService).confirmWithdrawal(1L, asset, 99L, TX_HASH);
-        verify(withdrawOrderMapper).updateById(order);
+        verify(withdrawOrderMapper).transitionStatus(
+                eq(99L), eq(WithdrawStatus.MINED.getCode()),
+                eq(WithdrawStatus.CONFIRMED.getCode()), eq(TX_HASH),
+                eq("withdraw transaction confirmed and frozen asset deducted"), eq(null), any());
     }
 
     @Test
-    void shouldReleaseWithdrawOrderWhenReceiptFailed() {
+    void shouldMoveFailedReceiptToManualReviewWithoutReleasingFunds() {
         WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
         order.setTxHash(TX_HASH);
         TransactionReceipt receipt = new TransactionReceipt();
         receipt.setStatus("0x0");
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
         when(web3Service.getTransactionReceipt(TX_HASH)).thenReturn(receipt);
-        SupportedAsset asset = ethAsset();
-        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
+        assertThat(withdrawService.syncWithdrawStatus(99L))
+                .isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
 
-        assertThat(withdrawService.syncWithdrawStatus(99L)).isEqualTo(WithdrawStatus.FAILED.getCode());
+        verifyNoInteractions(assetService);
+        assertThat(order.getManualReviewReason())
+                .isEqualTo("withdraw transaction receipt indicates failure");
+    }
 
-        verify(assetService).releaseWithdrawal(1L, asset, 99L, TX_HASH);
-        verify(withdrawOrderMapper).updateById(order);
+    @Test
+    void shouldMoveReceiptQueryExceptionToManualReview() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
+        order.setTxHash(TX_HASH);
+        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        when(web3Service.getTransactionReceipt(TX_HASH))
+                .thenThrow(new IllegalStateException("rpc unavailable"));
+
+        assertThatThrownBy(() -> withdrawService.syncWithdrawStatus(99L))
+                .isInstanceOf(WithdrawManualReviewException.class)
+                .hasMessage("withdraw receipt query requires manual review");
+
+        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
+        assertThat(order.getManualReviewReason()).contains("rpc unavailable");
+        verifyNoInteractions(assetService);
     }
 
     private WithdrawApplyRequest request() {

@@ -65,7 +65,7 @@ public class WithdrawController {
     }
 
     @GetMapping("/orders/{orderId}/audit-logs")
-    @PreAuthorize("hasAnyRole('OPERATOR', 'REVIEWER', 'ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public Result<List<WithdrawOperationLog>> listAuditLogs(@PathVariable Long orderId) {
         return Result.success(withdrawService.listAuditLogs(orderId));
     }
