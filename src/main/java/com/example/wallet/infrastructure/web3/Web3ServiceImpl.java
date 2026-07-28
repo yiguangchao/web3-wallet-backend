@@ -106,6 +106,19 @@ public class Web3ServiceImpl implements Web3Service {
     }
 
     @Override
+    public BigInteger getPendingNonce(String address) {
+        if (!isValidAddress(address)) {
+            throw new BizException("hot wallet address is invalid");
+        }
+        try {
+            return web3j.ethGetTransactionCount(
+                    address, DefaultBlockParameterName.PENDING).send().getTransactionCount();
+        } catch (Exception ex) {
+            throw new BizException("query hot wallet nonce failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
     public String broadcastEthTransfer(String toAddress, BigDecimal amount) {
         if (!isValidAddress(toAddress)) {
             throw new BizException("withdraw address is invalid");

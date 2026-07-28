@@ -16,6 +16,8 @@ public interface Web3Service {
 
     TransactionReceipt getTransactionReceipt(String txHash);
 
+    BigInteger getPendingNonce(String address);
+
     String broadcastEthTransfer(String toAddress, BigDecimal amount);
 
     String broadcastErc20Transfer(String tokenAddress, String toAddress, BigDecimal amount, Integer decimals);

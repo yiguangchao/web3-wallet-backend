@@ -65,6 +65,7 @@ public class WithdrawServiceImpl implements WithdrawService {
         order.setUserId(userId);
         order.setRequestId(requestId);
         order.setAssetId(asset.getId());
+        order.setChainId(asset.getChainId());
         order.setChain(asset.getChain());
         order.setTokenSymbol(asset.getSymbol());
         order.setTokenAddress(asset.getTokenAddress());

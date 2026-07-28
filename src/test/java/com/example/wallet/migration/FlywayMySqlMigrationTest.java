@@ -36,7 +36,7 @@ class FlywayMySqlMigrationTest {
 
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("10");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("11");
         assertThat(count("SELECT COUNT(*) FROM supported_asset")).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM information_schema.tables "
                 + "WHERE table_schema = DATABASE() AND table_name = 'asset_freeze_detail'"))
@@ -60,7 +60,7 @@ class FlywayMySqlMigrationTest {
         Flyway latest = flyway(null);
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("10");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("11");
         assertThat(count("SELECT COUNT(*) FROM asset_account WHERE asset_id = 7001")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM wallet_address WHERE verified_at IS NULL")).isEqualTo(1);
     }
@@ -186,18 +186,42 @@ class FlywayMySqlMigrationTest {
         flyway(null).migrate();
 
         assertThatThrownBy(() -> execute("INSERT INTO withdraw_order "
-                + "(id,user_id,asset_id,chain,token_symbol,to_address,amount,fee,status) VALUES "
-                + "(1,10,7001,'ETH_SEPOLIA','ETH','0x1111111111111111111111111111111111111111',1,0.1,4)"))
+                + "(id,user_id,asset_id,chain_id,chain,token_symbol,to_address,amount,fee,status) VALUES "
+                + "(1,10,7001,11155111,'ETH_SEPOLIA','ETH','0x1111111111111111111111111111111111111111',1,0.1,4)"))
                 .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> execute("INSERT INTO withdraw_order "
-                + "(id,user_id,asset_id,chain,token_symbol,to_address,amount,fee,status) VALUES "
-                + "(2,10,7001,'ETH_SEPOLIA','ETH','0x2222222222222222222222222222222222222222',1,0.1,10)"))
+                + "(id,user_id,asset_id,chain_id,chain,token_symbol,to_address,amount,fee,status) VALUES "
+                + "(2,10,7001,11155111,'ETH_SEPOLIA','ETH','0x2222222222222222222222222222222222222222',1,0.1,10)"))
                 .isInstanceOf(SQLException.class);
         execute("INSERT INTO withdraw_order "
-                + "(id,user_id,asset_id,chain,token_symbol,to_address,amount,fee,status,manual_review_reason) VALUES "
-                + "(3,10,7001,'ETH_SEPOLIA','ETH','0x3333333333333333333333333333333333333333',1,0.1,4,'rpc uncertain')");
+                + "(id,user_id,asset_id,chain_id,chain,token_symbol,to_address,amount,fee,status,manual_review_reason) VALUES "
+                + "(3,10,7001,11155111,'ETH_SEPOLIA','ETH','0x3333333333333333333333333333333333333333',1,0.1,4,'rpc uncertain')");
         assertThat(count("SELECT COUNT(*) FROM withdraw_order WHERE id = 3 AND status = 4"))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void shouldEnforceWalletNonceAndWithdrawalNonceUniqueness() throws Exception {
+        flyway(null).migrate();
+        String wallet = "0x1111111111111111111111111111111111111111";
+        execute("INSERT INTO wallet_nonce (id,chain_id,hot_wallet_address,next_nonce) VALUES "
+                + "(1,11155111,'" + wallet + "',10)");
+        assertThatThrownBy(() -> execute(
+                "INSERT INTO wallet_nonce (id,chain_id,hot_wallet_address,next_nonce) VALUES "
+                        + "(2,11155111,'" + wallet + "',11)"))
+                .isInstanceOf(SQLException.class);
+
+        execute("INSERT INTO withdraw_order "
+                + "(id,user_id,asset_id,chain_id,chain,token_symbol,to_address,amount,fee,status,"
+                + "hot_wallet_address,nonce,signer_key_id) VALUES "
+                + "(10,10,7001,11155111,'ETH_SEPOLIA','ETH','0x2222222222222222222222222222222222222222',"
+                + "1,0.1,7,'" + wallet + "',10,'withdraw-v1')");
+        assertThatThrownBy(() -> execute("INSERT INTO withdraw_order "
+                + "(id,user_id,asset_id,chain_id,chain,token_symbol,to_address,amount,fee,status,"
+                + "hot_wallet_address,nonce,signer_key_id) VALUES "
+                + "(11,20,7001,11155111,'ETH_SEPOLIA','ETH','0x3333333333333333333333333333333333333333',"
+                + "1,0.1,7,'" + wallet + "',10,'withdraw-v1')"))
+                .isInstanceOf(SQLException.class);
     }
 
     private Flyway flyway(String target) {

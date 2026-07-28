@@ -7,6 +7,9 @@ web3:
   chain-id: 11155111
 
 wallet:
+  signer:
+    local-private-key: "0000000000000000000000000000000000000000000000000000000000000001"
+    key-id: test-withdraw-key
   custody:
     enabled: true
     chain: ETH_SEPOLIA

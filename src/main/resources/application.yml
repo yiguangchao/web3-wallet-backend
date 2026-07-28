@@ -53,6 +53,12 @@ wallet:
   operations:
     deposit-enabled: ${WALLET_DEPOSIT_ENABLED:true}
     withdraw-enabled: ${WALLET_WITHDRAW_ENABLED:true}
+  signer:
+    hot-wallet-address: ${WALLET_SIGNER_HOT_WALLET_ADDRESS:}
+    key-id: ${WALLET_SIGNER_KEY_ID:withdraw-v1}
+    local-private-key: ${WALLET_SIGNER_LOCAL_PRIVATE_KEY:}
+    remote-url: ${WALLET_SIGNER_REMOTE_URL:}
+    remote-path: ${WALLET_SIGNER_REMOTE_PATH:/api/v1/sign/ethereum-transaction}
   signature:
     challenge-ttl: ${WALLET_SIGNATURE_CHALLENGE_TTL:300000}
   custody:
