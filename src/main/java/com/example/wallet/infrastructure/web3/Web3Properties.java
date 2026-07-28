@@ -32,7 +32,6 @@ public class Web3Properties {
     private long retryMaxBackoff = 5_000L;
     @Min(1)
     private int maxRequestsPerSecond = 10;
-    private String withdrawPrivateKey;
     @Min(1)
     private long ethTransferGasLimit = 21_000L;
     @Min(1)

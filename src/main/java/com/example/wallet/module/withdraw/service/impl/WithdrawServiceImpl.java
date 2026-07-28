@@ -10,10 +10,13 @@ import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
+import com.example.wallet.module.withdraw.entity.WithdrawChainTransaction;
 import com.example.wallet.module.withdraw.exception.WithdrawManualReviewException;
 import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
+import com.example.wallet.module.withdraw.service.PreparedChainTransaction;
 import com.example.wallet.module.withdraw.service.WithdrawService;
 import com.example.wallet.module.withdraw.service.WithdrawAuditService;
+import com.example.wallet.module.withdraw.service.WithdrawTransactionPreparationService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,17 +34,20 @@ public class WithdrawServiceImpl implements WithdrawService {
     private final AssetService assetService;
     private final SupportedAssetService supportedAssetService;
     private final WithdrawAuditService withdrawAuditService;
+    private final WithdrawTransactionPreparationService transactionPreparationService;
 
     public WithdrawServiceImpl(WithdrawOrderMapper withdrawOrderMapper,
                                Web3Service web3Service,
                                AssetService assetService,
                                SupportedAssetService supportedAssetService,
-                               WithdrawAuditService withdrawAuditService) {
+                               WithdrawAuditService withdrawAuditService,
+                               WithdrawTransactionPreparationService transactionPreparationService) {
         this.withdrawOrderMapper = withdrawOrderMapper;
         this.web3Service = web3Service;
         this.assetService = assetService;
         this.supportedAssetService = supportedAssetService;
         this.withdrawAuditService = withdrawAuditService;
+        this.transactionPreparationService = transactionPreparationService;
     }
 
     @Override
@@ -129,11 +135,19 @@ public class WithdrawServiceImpl implements WithdrawService {
 
     @Override
     @PreAuthorize("hasAnyRole('OPERATOR', 'ADMIN')")
-    @Transactional(rollbackFor = Exception.class, noRollbackFor = WithdrawManualReviewException.class)
+    @Transactional(rollbackFor = Exception.class)
     public String broadcastWithdraw(Long orderId) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
-        if (order.getStatus().equals(WithdrawStatus.BROADCASTED.getCode()) && StringUtils.hasText(order.getTxHash())) {
-            return order.getTxHash();
+        WithdrawChainTransaction existing = transactionPreparationService.findByOrderId(orderId);
+        if (existing != null) {
+            if (order.getStatus().equals(WithdrawStatus.SIGNED.getCode())
+                    || order.getStatus().equals(WithdrawStatus.BROADCASTING.getCode())
+                    || order.getStatus().equals(WithdrawStatus.BROADCASTED.getCode())
+                    || order.getStatus().equals(WithdrawStatus.MINED.getCode())
+                    || order.getStatus().equals(WithdrawStatus.CONFIRMED.getCode())) {
+                return existing.getTxHash();
+            }
+            throw new BizException("withdraw transaction exists in an inconsistent order state");
         }
         if (!order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
             throw new BizException("withdraw order status cannot be broadcast");
@@ -143,36 +157,12 @@ public class WithdrawServiceImpl implements WithdrawService {
 
         transition(order, WithdrawStatus.APPROVED, WithdrawStatus.SIGNING,
                 "START_SIGNING", "withdraw signing started", null, null);
+        PreparedChainTransaction prepared = transactionPreparationService.prepare(order, asset);
         transition(order, WithdrawStatus.SIGNING, WithdrawStatus.SIGNED,
-                "SIGNED", "withdraw signing completed", null, null);
+                "SIGNED", "withdraw signing completed", prepared.txHash(), null);
         transition(order, WithdrawStatus.SIGNED, WithdrawStatus.BROADCASTING,
-                "START_BROADCAST", "withdraw transaction is being broadcast", null, null);
-
-        String txHash;
-        try {
-            txHash = StringUtils.hasText(asset.getTokenAddress())
-                    ? web3Service.broadcastErc20Transfer(asset.getTokenAddress(), order.getToAddress(),
-                    order.getAmount(), asset.getDecimals())
-                    : web3Service.broadcastEthTransfer(order.getToAddress(), order.getAmount());
-            if (!StringUtils.hasText(txHash)) {
-                throw new IllegalStateException("chain broadcaster returned an empty transaction hash");
-            }
-        } catch (RuntimeException ex) {
-            moveToManualReview(order, "withdraw broadcast result is uncertain", ex);
-            throw new WithdrawManualReviewException(
-                    "withdraw broadcast requires manual review", ex);
-        }
-        try {
-            transition(order, WithdrawStatus.BROADCASTING, WithdrawStatus.BROADCASTED,
-                    "BROADCASTED", "withdraw transaction broadcasted", txHash, null);
-        } catch (RuntimeException ex) {
-            order.setTxHash(txHash);
-            moveToManualReview(order,
-                    "transaction was broadcast but persistence did not complete", ex);
-            throw new WithdrawManualReviewException(
-                    "broadcasted withdrawal requires manual review", ex);
-        }
-        return txHash;
+                "START_BROADCAST", "withdraw transaction queued for broadcast", prepared.txHash(), null);
+        return prepared.txHash();
     }
 
     @Override

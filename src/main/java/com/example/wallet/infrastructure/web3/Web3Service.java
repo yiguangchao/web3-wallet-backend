@@ -18,7 +18,9 @@ public interface Web3Service {
 
     BigInteger getPendingNonce(String address);
 
-    String broadcastEthTransfer(String toAddress, BigDecimal amount);
+    BigInteger getGasPrice();
 
-    String broadcastErc20Transfer(String tokenAddress, String toAddress, BigDecimal amount, Integer decimals);
+    String broadcastRawTransaction(String rawTransaction);
+
+    boolean isTransactionKnown(String txHash);
 }

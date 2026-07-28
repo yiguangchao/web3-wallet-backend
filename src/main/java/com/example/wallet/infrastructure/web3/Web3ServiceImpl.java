@@ -14,9 +14,6 @@ import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Function;
 import org.web3j.abi.datatypes.Type;
 import org.web3j.abi.datatypes.generated.Uint256;
-import org.web3j.crypto.Credentials;
-import org.web3j.crypto.RawTransaction;
-import org.web3j.crypto.TransactionEncoder;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.request.Transaction;
@@ -30,11 +27,9 @@ import org.web3j.utils.Numeric;
 public class Web3ServiceImpl implements Web3Service {
 
     private final Web3j web3j;
-    private final Web3Properties properties;
 
-    public Web3ServiceImpl(Web3j web3j, Web3Properties properties) {
+    public Web3ServiceImpl(Web3j web3j) {
         this.web3j = web3j;
-        this.properties = properties;
     }
 
     @Override
@@ -119,65 +114,7 @@ public class Web3ServiceImpl implements Web3Service {
     }
 
     @Override
-    public String broadcastEthTransfer(String toAddress, BigDecimal amount) {
-        if (!isValidAddress(toAddress)) {
-            throw new BizException("withdraw address is invalid");
-        }
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BizException("withdraw amount must be greater than zero");
-        }
-        BigInteger value = Convert.toWei(amount, Convert.Unit.ETHER).toBigIntegerExact();
-        RawTransaction rawTransaction = RawTransaction.createEtherTransaction(
-                nextNonce(), currentGasPrice(), BigInteger.valueOf(properties.getEthTransferGasLimit()), toAddress, value);
-        return signAndSend(rawTransaction);
-    }
-
-    @Override
-    public String broadcastErc20Transfer(String tokenAddress, String toAddress, BigDecimal amount, Integer decimals) {
-        if (!isValidAddress(tokenAddress) || !isValidAddress(toAddress)) {
-            throw new BizException("token address or withdraw address is invalid");
-        }
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BizException("withdraw amount must be greater than zero");
-        }
-        validateDecimals(decimals);
-        BigInteger rawAmount = amount.movePointRight(decimals).toBigIntegerExact();
-        Function function = new Function(
-                "transfer",
-                List.of(new Address(toAddress), new Uint256(rawAmount)),
-                Collections.singletonList(new TypeReference<org.web3j.abi.datatypes.Bool>() {
-                }));
-        RawTransaction rawTransaction = RawTransaction.createTransaction(
-                nextNonce(), currentGasPrice(), BigInteger.valueOf(properties.getErc20TransferGasLimit()),
-                tokenAddress, BigInteger.ZERO, FunctionEncoder.encode(function));
-        return signAndSend(rawTransaction);
-    }
-
-    private Credentials withdrawCredentials() {
-        String privateKey = properties.getWithdrawPrivateKey();
-        if (!StringUtils.hasText(privateKey)) {
-            throw new BizException("withdraw private key is not configured");
-        }
-        privateKey = Numeric.cleanHexPrefix(privateKey.trim());
-        try {
-            return Credentials.create(privateKey);
-        } catch (Exception ex) {
-            throw new BizException("withdraw private key is invalid");
-        }
-    }
-
-    private BigInteger nextNonce() {
-        try {
-            return web3j.ethGetTransactionCount(
-                    withdrawCredentials().getAddress(), DefaultBlockParameterName.PENDING).send().getTransactionCount();
-        } catch (BizException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new BizException("query withdraw nonce failed: " + ex.getMessage());
-        }
-    }
-
-    private BigInteger currentGasPrice() {
+    public BigInteger getGasPrice() {
         try {
             return web3j.ethGasPrice().send().getGasPrice();
         } catch (Exception ex) {
@@ -185,11 +122,13 @@ public class Web3ServiceImpl implements Web3Service {
         }
     }
 
-    private String signAndSend(RawTransaction rawTransaction) {
+    @Override
+    public String broadcastRawTransaction(String rawTransaction) {
+        if (!StringUtils.hasText(rawTransaction) || !Numeric.containsHexPrefix(rawTransaction)) {
+            throw new BizException("raw transaction is invalid");
+        }
         try {
-            byte[] signedMessage = TransactionEncoder.signMessage(
-                    rawTransaction, properties.getChainId(), withdrawCredentials());
-            EthSendTransaction response = web3j.ethSendRawTransaction(Numeric.toHexString(signedMessage)).send();
+            EthSendTransaction response = web3j.ethSendRawTransaction(rawTransaction).send();
             if (response.hasError()) {
                 throw new BizException("broadcast transaction failed: " + response.getError().getMessage());
             }
@@ -199,6 +138,28 @@ public class Web3ServiceImpl implements Web3Service {
         } catch (Exception ex) {
             throw new BizException("broadcast transaction failed: " + ex.getMessage());
         }
+    }
+
+    @Override
+    public boolean isTransactionKnown(String txHash) {
+        if (!validTxHash(txHash)) {
+            throw new BizException("transaction hash is invalid");
+        }
+        try {
+            var response = web3j.ethGetTransactionByHash(txHash).send();
+            if (response.hasError()) {
+                throw new BizException("query transaction failed: " + response.getError().getMessage());
+            }
+            return response.getTransaction().isPresent();
+        } catch (BizException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BizException("query transaction failed: " + ex.getMessage());
+        }
+    }
+
+    private boolean validTxHash(String txHash) {
+        return txHash != null && txHash.matches("^0x[0-9a-fA-F]{64}$");
     }
 
     private void validateDecimals(Integer decimals) {

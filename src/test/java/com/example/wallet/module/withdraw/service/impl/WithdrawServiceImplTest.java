@@ -18,11 +18,14 @@ import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
+import com.example.wallet.module.withdraw.entity.WithdrawChainTransaction;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
 import com.example.wallet.module.withdraw.exception.WithdrawManualReviewException;
 import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
+import com.example.wallet.module.withdraw.service.PreparedChainTransaction;
 import com.example.wallet.module.withdraw.service.WithdrawAuditService;
+import com.example.wallet.module.withdraw.service.WithdrawTransactionPreparationService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,13 +52,16 @@ class WithdrawServiceImplTest {
     private SupportedAssetService supportedAssetService;
     @Mock
     private WithdrawAuditService withdrawAuditService;
+    @Mock
+    private WithdrawTransactionPreparationService transactionPreparationService;
 
     private WithdrawServiceImpl withdrawService;
 
     @BeforeEach
     void setUp() {
         withdrawService = new WithdrawServiceImpl(
-                withdrawOrderMapper, web3Service, assetService, supportedAssetService, withdrawAuditService);
+                withdrawOrderMapper, web3Service, assetService, supportedAssetService,
+                withdrawAuditService, transactionPreparationService);
         lenient().when(withdrawOrderMapper.insert(any(WithdrawOrder.class))).thenReturn(1);
         lenient().when(withdrawOrderMapper.transitionStatus(
                 any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
@@ -212,20 +218,22 @@ class WithdrawServiceImplTest {
     }
 
     @Test
-    void shouldBroadcastEthWithdrawOrderAndPersistTxHash() {
+    void shouldPrepareWithdrawalAndQueueOutboxWithoutSynchronousBroadcast() {
         WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
         SupportedAsset asset = ethAsset();
         when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
         when(supportedAssetService.getRequiredWithdrawAsset("ETH")).thenReturn(asset);
-        when(web3Service.broadcastEthTransfer(TO_ADDRESS, order.getAmount())).thenReturn(TX_HASH);
+        when(transactionPreparationService.prepare(order, asset))
+                .thenReturn(new PreparedChainTransaction(700L, TX_HASH));
 
         assertThat(withdrawService.broadcastWithdraw(99L)).isEqualTo(TX_HASH);
 
-        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.BROADCASTED.getCode());
+        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.BROADCASTING.getCode());
         assertThat(order.getTxHash()).isEqualTo(TX_HASH);
-        verify(withdrawOrderMapper, times(4)).transitionStatus(
+        verify(withdrawOrderMapper, times(3)).transitionStatus(
                 eq(99L), any(), any(), any(), any(), any(), any());
+        verify(transactionPreparationService).prepare(order, asset);
         verify(withdrawAuditService).record(99L, "START_SIGNING",
                 WithdrawStatus.APPROVED.getCode(), WithdrawStatus.SIGNING.getCode(),
                 "withdraw signing started");
@@ -234,10 +242,8 @@ class WithdrawServiceImplTest {
                 "withdraw signing completed");
         verify(withdrawAuditService).record(99L, "START_BROADCAST",
                 WithdrawStatus.SIGNED.getCode(), WithdrawStatus.BROADCASTING.getCode(),
-                "withdraw transaction is being broadcast");
-        verify(withdrawAuditService).record(99L, "BROADCASTED",
-                WithdrawStatus.BROADCASTING.getCode(), WithdrawStatus.BROADCASTED.getCode(),
-                "withdraw transaction broadcasted");
+                "withdraw transaction queued for broadcast");
+        verify(web3Service, never()).broadcastRawTransaction(any());
     }
 
     @Test
@@ -245,6 +251,9 @@ class WithdrawServiceImplTest {
         WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
         order.setTxHash(TX_HASH);
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        WithdrawChainTransaction transaction = new WithdrawChainTransaction();
+        transaction.setTxHash(TX_HASH);
+        when(transactionPreparationService.findByOrderId(99L)).thenReturn(transaction);
 
         assertThat(withdrawService.broadcastWithdraw(99L)).isEqualTo(TX_HASH);
 
@@ -253,48 +262,37 @@ class WithdrawServiceImplTest {
     }
 
     @Test
-    void shouldMoveBroadcastExceptionToManualReview() {
+    void shouldRollBackPreparationWhenSigningFails() {
         WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
         SupportedAsset asset = ethAsset();
         when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
         when(supportedAssetService.getRequiredWithdrawAsset("ETH")).thenReturn(asset);
-        when(web3Service.broadcastEthTransfer(TO_ADDRESS, order.getAmount()))
+        when(transactionPreparationService.prepare(order, asset))
                 .thenThrow(new IllegalStateException("rpc timeout"));
 
         assertThatThrownBy(() -> withdrawService.broadcastWithdraw(99L))
-                .isInstanceOf(WithdrawManualReviewException.class)
-                .hasMessage("withdraw broadcast requires manual review");
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("rpc timeout");
 
-        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
-        assertThat(order.getManualReviewReason()).contains("rpc timeout");
         verifyNoInteractions(assetService);
-        verify(withdrawOrderMapper, times(4)).transitionStatus(
+        verify(withdrawOrderMapper).transitionStatus(
                 eq(99L), any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    void shouldMoveToManualReviewWhenBroadcastSucceededButStatusPersistenceLostRace() {
-        WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
+    void shouldReturnPreparedHashWhileOrderIsWaitingForOutbox() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTING.getCode());
+        order.setTxHash(TX_HASH);
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
-        SupportedAsset asset = ethAsset();
-        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
-        when(supportedAssetService.getRequiredWithdrawAsset("ETH")).thenReturn(asset);
-        when(web3Service.broadcastEthTransfer(TO_ADDRESS, order.getAmount())).thenReturn(TX_HASH);
-        when(withdrawOrderMapper.transitionStatus(
-                any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(1, 1, 1, 0, 1);
+        WithdrawChainTransaction transaction = new WithdrawChainTransaction();
+        transaction.setTxHash(TX_HASH);
+        when(transactionPreparationService.findByOrderId(99L)).thenReturn(transaction);
 
-        assertThatThrownBy(() -> withdrawService.broadcastWithdraw(99L))
-                .isInstanceOf(WithdrawManualReviewException.class)
-                .hasMessage("broadcasted withdrawal requires manual review");
+        assertThat(withdrawService.broadcastWithdraw(99L)).isEqualTo(TX_HASH);
 
-        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
-        assertThat(order.getTxHash()).isEqualTo(TX_HASH);
-        assertThat(order.getManualReviewReason())
-                .contains("transaction was broadcast but persistence did not complete");
-        verify(withdrawOrderMapper, times(5)).transitionStatus(
-                eq(99L), any(), any(), any(), any(), any(), any());
+        verify(withdrawOrderMapper, never()).transitionStatus(any(), any(), any(), any(), any(), any(), any());
+        verify(transactionPreparationService, never()).prepare(any(), any());
     }
 
     @Test
@@ -383,6 +381,7 @@ class WithdrawServiceImplTest {
         order.setId(99L);
         order.setUserId(1L);
         order.setAssetId(7001L);
+        order.setChainId(11155111L);
         order.setChain("ETH_SEPOLIA");
         order.setTokenSymbol("ETH");
         order.setTokenDecimals(18);
@@ -397,6 +396,7 @@ class WithdrawServiceImplTest {
         SupportedAsset asset = new SupportedAsset();
         asset.setId(7001L);
         asset.setAssetCode("ETH");
+        asset.setChainId(11155111L);
         asset.setChain("ETH_SEPOLIA");
         asset.setSymbol("ETH");
         asset.setDecimals(18);
@@ -410,6 +410,7 @@ class WithdrawServiceImplTest {
         SupportedAsset asset = new SupportedAsset();
         asset.setId(7002L);
         asset.setAssetCode("USDC");
+        asset.setChainId(11155111L);
         asset.setChain("ETH_SEPOLIA");
         asset.setSymbol("USDC");
         asset.setTokenAddress(TOKEN_ADDRESS.toLowerCase());

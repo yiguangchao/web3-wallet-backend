@@ -44,7 +44,6 @@ web3:
   retry-backoff: ${WEB3_RETRY_BACKOFF:500}
   retry-max-backoff: ${WEB3_RETRY_MAX_BACKOFF:5000}
   max-requests-per-second: ${WEB3_MAX_REQUESTS_PER_SECOND:10}
-  withdraw-private-key: ${WEB3_WITHDRAW_PRIVATE_KEY:}
   eth-transfer-gas-limit: ${WEB3_ETH_TRANSFER_GAS_LIMIT:21000}
   erc20-transfer-gas-limit: ${WEB3_ERC20_TRANSFER_GAS_LIMIT:100000}
 
@@ -59,6 +58,13 @@ wallet:
     local-private-key: ${WALLET_SIGNER_LOCAL_PRIVATE_KEY:}
     remote-url: ${WALLET_SIGNER_REMOTE_URL:}
     remote-path: ${WALLET_SIGNER_REMOTE_PATH:/api/v1/sign/ethereum-transaction}
+  withdraw-broadcast:
+    enabled: ${WALLET_WITHDRAW_BROADCAST_ENABLED:true}
+    fixed-delay: ${WALLET_WITHDRAW_BROADCAST_FIXED_DELAY:5000}
+    batch-size: ${WALLET_WITHDRAW_BROADCAST_BATCH_SIZE:20}
+    max-attempts: ${WALLET_WITHDRAW_BROADCAST_MAX_ATTEMPTS:5}
+    retry-delay: ${WALLET_WITHDRAW_BROADCAST_RETRY_DELAY:30000}
+    processing-timeout: ${WALLET_WITHDRAW_BROADCAST_PROCESSING_TIMEOUT:120000}
   signature:
     challenge-ttl: ${WALLET_SIGNATURE_CHALLENGE_TTL:300000}
   custody:

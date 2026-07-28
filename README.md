@@ -241,7 +241,7 @@ PENDING_REVIEW(0) -> REJECTED(5)
 
 `CONFIRMED`、`REJECTED` 和 `MANUAL_REVIEW` 当前都是终态。每次迁移使用 `WHERE id = ? AND status = ?` 条件更新并严格校验影响行数，未声明的状态边直接拒绝；成功迁移后记录操作人、角色、IP、前后状态和备注。审核拒绝只允许从 `PENDING_REVIEW` 发生，并与冻结资金释放处于同一事务；进入 `MANUAL_REVIEW` 时不自动释放资金。
 
-现有链服务仍将签名和广播封装在同一个调用中，本阶段先通过订单状态和审计记录建立编排边界。成功回执先把订单推进到 `MINED`，下一次同步才在同一事务内扣减冻结资金并推进到 `CONFIRMED`，避免“链上已打包”和“内部账本已最终结算”混成一个状态。
+V11/V12 已将 Nonce、签名和广播拆分。接口调用只分配 Nonce、调用签名器并在同一数据库事务中写入 `withdraw_chain_transaction` 与 `transaction_outbox`，随后返回本地计算的 `txHash`；后台广播器再投递已经固化的 `raw_transaction`。成功回执先把订单推进到 `MINED`，下一次同步才在同一事务内扣减冻结资金并推进到 `CONFIRMED`，避免“链上已打包”和“内部账本已最终结算”混成一个状态。
 
 后台权限：
 
@@ -258,11 +258,28 @@ $env:WALLET_WITHDRAW_ENABLED="true"
 
 升级 V10 前先执行 `docs/sql/V10__withdraw_state_preflight.sql`，确认历史失败订单的冻结明细已经释放。旧版 `PROCESSING` 无法证明广播结果，迁移时会进入 `MANUAL_REVIEW` 并继续冻结资金。
 
+## 提现 Nonce、签名隔离与 Outbox
+
+`wallet_nonce` 按 `(chain_id, hot_wallet_address)` 保存下一可用 Nonce。分配时先用 `SELECT FOR UPDATE` 锁定提现订单和 Nonce 行，并取 `max(database next_nonce, chain pending nonce)`；订单通过 `(chain_id, hot_wallet_address, nonce)` 唯一约束保证一笔订单只拥有一个 Nonce，重复准备不会再次访问 RPC 或重新签名。
+
+`TransactionSigner` 是唯一签名入口。`LocalDevSigner` 只在 `dev`/`test` Profile 注册；其他 Profile 只注册 `RemoteSignerClient`。远程签名结果会在应用内重新解码并校验发送方、chainId、Nonce、Gas、接收方、金额和 data，同时以 `rawTransaction` 本地计算 `txHash`，不能信任远程服务声明的哈希。
+
+生产环境至少需要配置：
+
+```powershell
+$env:WALLET_SIGNER_HOT_WALLET_ADDRESS="0x平台热钱包地址"
+$env:WALLET_SIGNER_KEY_ID="withdraw-v1"
+$env:WALLET_SIGNER_REMOTE_URL="https://内部签名服务"
+```
+
+Outbox 状态为 `PENDING -> PROCESSING -> SENT`，失败在达到上限前回到 `PENDING`。广播器每次都发送数据库中同一份 `raw_transaction`；RPC 响应超时时会查询本地 `txHash`，已经可查则按成功处理，否则按配置延迟重试。服务重启后，超出租约时间的 `PROCESSING` 会自动恢复。超过最大重试次数后 Outbox 进入 `DEAD`，订单进入 `MANUAL_REVIEW`，冻结资金不会自动释放。
+
+可通过 `WALLET_WITHDRAW_BROADCAST_ENABLED`、`WALLET_WITHDRAW_BROADCAST_MAX_ATTEMPTS`、`WALLET_WITHDRAW_BROADCAST_RETRY_DELAY` 和 `WALLET_WITHDRAW_BROADCAST_PROCESSING_TIMEOUT` 调整广播任务。生产升级前依次执行 `docs/sql/V11__wallet_nonce_preflight.sql` 和 `docs/sql/V12__withdraw_outbox_preflight.sql`。
+
 ## 后续计划
 
-- Vault/KMS/HSM 或独立签名服务
 - ERC-20 Gas 自动补给与风控
-- 提现和归集统一 Nonce 管理
+- 提现与充值归集共享热钱包时的统一 Nonce 域
 - 链上余额、内部账本和资产流水三方对账
 - EIP-1559、卡单加速与替换交易
 - 后端应用 Docker 镜像与完整部署编排
@@ -276,7 +293,7 @@ Phase 1：基础账户与托管充值地址分配，已完成
 Phase 2：资产账户、流水、仅 dev/test 可用的模拟充值，已完成
 Phase 3：真实充值扫描、确认、重组处理，已完成
 Phase 4：提现冻结、审核、签名、广播，已完成
-Phase 5：Redis 锁、归集任务、交易状态同步，已完成
+Phase 5：Nonce、签名隔离、链上交易快照与 Outbox 广播恢复，已完成
 Phase 6：Docker 镜像、部署脚本、监控告警，待开发
 
 ### 模拟充值安全隔离
