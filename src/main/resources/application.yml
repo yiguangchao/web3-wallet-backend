@@ -50,6 +50,8 @@ web3:
 
 wallet:
   confirm-blocks: ${WALLET_CONFIRM_BLOCKS:12}
+  signature:
+    challenge-ttl: ${WALLET_SIGNATURE_CHALLENGE_TTL:300000}
   custody:
     enabled: ${WALLET_CUSTODY_ENABLED:false}
     chain: ${WALLET_CUSTODY_CHAIN:ETH_SEPOLIA}

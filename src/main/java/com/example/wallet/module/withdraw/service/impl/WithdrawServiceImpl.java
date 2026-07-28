@@ -3,7 +3,9 @@ package com.example.wallet.module.withdraw.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.infrastructure.web3.Web3Service;
+import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.service.AssetService;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
@@ -14,7 +16,6 @@ import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Locale;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -26,15 +27,18 @@ public class WithdrawServiceImpl implements WithdrawService {
     private final WithdrawOrderMapper withdrawOrderMapper;
     private final Web3Service web3Service;
     private final AssetService assetService;
+    private final SupportedAssetService supportedAssetService;
     private final WithdrawAuditService withdrawAuditService;
 
     public WithdrawServiceImpl(WithdrawOrderMapper withdrawOrderMapper,
                                Web3Service web3Service,
                                AssetService assetService,
+                               SupportedAssetService supportedAssetService,
                                WithdrawAuditService withdrawAuditService) {
         this.withdrawOrderMapper = withdrawOrderMapper;
         this.web3Service = web3Service;
         this.assetService = assetService;
+        this.supportedAssetService = supportedAssetService;
         this.withdrawAuditService = withdrawAuditService;
     }
 
@@ -51,23 +55,18 @@ public class WithdrawServiceImpl implements WithdrawService {
         if (!web3Service.isValidAddress(request.getToAddress())) {
             throw new BizException("withdraw address is invalid");
         }
-        if (StringUtils.hasText(request.getTokenAddress())
-                && !web3Service.isValidAddress(request.getTokenAddress())) {
-            throw new BizException("token address is invalid");
-        }
-
-        String chain = StringUtils.hasText(request.getChain()) ? request.getChain() : "ETH_SEPOLIA";
-        String tokenAddress = StringUtils.hasText(request.getTokenAddress())
-                ? request.getTokenAddress().toLowerCase(Locale.ROOT) : null;
-        BigDecimal fee = request.getFee() == null ? BigDecimal.ZERO : request.getFee();
+        SupportedAsset asset = supportedAssetService.getRequiredWithdrawAsset(request.getAssetCode());
+        validateAmount(request.getAmount(), asset);
+        BigDecimal fee = asset.getPlatformWithdrawFee();
         LocalDateTime now = LocalDateTime.now();
         WithdrawOrder order = new WithdrawOrder();
         order.setUserId(userId);
         order.setRequestId(requestId);
-        order.setChain(chain);
-        order.setTokenSymbol(request.getTokenSymbol());
-        order.setTokenAddress(tokenAddress);
-        order.setTokenDecimals(request.getTokenDecimals() == null ? 18 : request.getTokenDecimals());
+        order.setAssetId(asset.getId());
+        order.setChain(asset.getChain());
+        order.setTokenSymbol(asset.getSymbol());
+        order.setTokenAddress(asset.getTokenAddress());
+        order.setTokenDecimals(asset.getDecimals());
         order.setToAddress(request.getToAddress());
         order.setAmount(request.getAmount());
         order.setFee(fee);
@@ -77,8 +76,7 @@ public class WithdrawServiceImpl implements WithdrawService {
         order.setUpdatedAt(now);
         withdrawOrderMapper.insert(order);
 
-        assetService.freezeWithdrawal(userId, chain, request.getTokenSymbol(), tokenAddress,
-                request.getAmount(), fee, order.getId());
+        assetService.freezeWithdrawal(userId, asset, request.getAmount(), order.getId());
         return order.getId();
     }
 
@@ -93,6 +91,7 @@ public class WithdrawServiceImpl implements WithdrawService {
     @Transactional(rollbackFor = Exception.class)
     public Integer approveWithdraw(Long orderId, String remark) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
+        supportedAssetService.getRequiredById(order.getAssetId());
         if (order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
             return order.getStatus();
         }
@@ -120,8 +119,8 @@ public class WithdrawServiceImpl implements WithdrawService {
             throw new BizException("withdraw order status cannot be rejected");
         }
         Integer beforeStatus = order.getStatus();
-        assetService.releaseWithdrawal(order.getUserId(), order.getChain(), order.getTokenSymbol(),
-                order.getTokenAddress(), order.getAmount(), order.getFee(), order.getId(), order.getTxHash());
+        SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
+        assetService.releaseWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
         order.setStatus(WithdrawStatus.CANCELLED.getCode());
         order.setRemark(StringUtils.hasText(remark) ? remark : "withdraw rejected, frozen asset released");
         order.setUpdatedAt(LocalDateTime.now());
@@ -140,6 +139,8 @@ public class WithdrawServiceImpl implements WithdrawService {
                 && !order.getStatus().equals(WithdrawStatus.PROCESSING.getCode())) {
             throw new BizException("withdraw order status cannot be broadcast");
         }
+        SupportedAsset asset = supportedAssetService.getRequiredWithdrawAsset(
+                supportedAssetService.getRequiredById(order.getAssetId()).getAssetCode());
 
         Integer beforeStatus = order.getStatus();
         order.setStatus(WithdrawStatus.PROCESSING.getCode());
@@ -147,9 +148,9 @@ public class WithdrawServiceImpl implements WithdrawService {
         order.setUpdatedAt(LocalDateTime.now());
         withdrawOrderMapper.updateById(order);
 
-        String txHash = StringUtils.hasText(order.getTokenAddress())
-                ? web3Service.broadcastErc20Transfer(order.getTokenAddress(), order.getToAddress(),
-                order.getAmount(), order.getTokenDecimals())
+        String txHash = StringUtils.hasText(asset.getTokenAddress())
+                ? web3Service.broadcastErc20Transfer(asset.getTokenAddress(), order.getToAddress(),
+                order.getAmount(), asset.getDecimals())
                 : web3Service.broadcastEthTransfer(order.getToAddress(), order.getAmount());
 
         order.setTxHash(txHash);
@@ -180,14 +181,13 @@ public class WithdrawServiceImpl implements WithdrawService {
         }
 
         Integer beforeStatus = order.getStatus();
+        SupportedAsset asset = supportedAssetService.getRequiredById(order.getAssetId());
         if (receipt.isStatusOK()) {
-            assetService.confirmWithdrawal(order.getUserId(), order.getChain(), order.getTokenSymbol(),
-                    order.getTokenAddress(), order.getAmount(), order.getFee(), order.getId(), order.getTxHash());
+            assetService.confirmWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
             order.setStatus(WithdrawStatus.CONFIRMED.getCode());
             order.setRemark("withdraw transaction confirmed on chain");
         } else {
-            assetService.releaseWithdrawal(order.getUserId(), order.getChain(), order.getTokenSymbol(),
-                    order.getTokenAddress(), order.getAmount(), order.getFee(), order.getId(), order.getTxHash());
+            assetService.releaseWithdrawal(order.getUserId(), asset, order.getId(), order.getTxHash());
             order.setStatus(WithdrawStatus.FAILED.getCode());
             order.setRemark("withdraw transaction failed on chain, frozen asset released");
         }
@@ -208,5 +208,17 @@ public class WithdrawServiceImpl implements WithdrawService {
             throw new BizException("withdraw order not found");
         }
         return order;
+    }
+
+    private void validateAmount(BigDecimal amount, SupportedAsset asset) {
+        if (amount.scale() > asset.getDecimals()) {
+            throw new BizException("withdraw amount has too many decimal places");
+        }
+        if (amount.compareTo(asset.getMinWithdraw()) < 0) {
+            throw new BizException("withdraw amount is below the minimum");
+        }
+        if (amount.compareTo(asset.getMaxSingleWithdraw()) > 0) {
+            throw new BizException("withdraw amount exceeds the single-withdraw limit");
+        }
     }
 }

@@ -15,6 +15,7 @@ public class WithdrawOrder {
     private Long id;
     private Long userId;
     private String requestId;
+    private Long assetId;
     private String chain;
     private String tokenSymbol;
     private String tokenAddress;
