@@ -16,6 +16,7 @@ import org.web3j.abi.datatypes.Type;
 import org.web3j.abi.datatypes.generated.Uint256;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
+import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.methods.request.Transaction;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthSendTransaction;
@@ -114,11 +115,99 @@ public class Web3ServiceImpl implements Web3Service {
     }
 
     @Override
-    public BigInteger getGasPrice() {
+    public BigInteger getLatestNonce(String address) {
+        if (!isValidAddress(address)) {
+            throw new BizException("hot wallet address is invalid");
+        }
         try {
-            return web3j.ethGasPrice().send().getGasPrice();
+            return web3j.ethGetTransactionCount(
+                    address, DefaultBlockParameterName.LATEST).send().getTransactionCount();
         } catch (Exception ex) {
-            throw new BizException("query gas price failed: " + ex.getMessage());
+            throw new BizException("query latest hot wallet nonce failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public Eip1559FeeSuggestion getEip1559FeeSuggestion() {
+        try {
+            var blockResponse = web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send();
+            if (blockResponse.hasError() || blockResponse.getBlock() == null
+                    || blockResponse.getBlock().getBaseFeePerGas() == null) {
+                throw new BizException("latest block does not provide EIP-1559 base fee");
+            }
+            var priorityResponse = web3j.ethMaxPriorityFeePerGas().send();
+            if (priorityResponse.hasError()) {
+                throw new BizException(priorityResponse.getError().getMessage());
+            }
+            BigInteger baseFee = blockResponse.getBlock().getBaseFeePerGas();
+            BigInteger priorityFee = priorityResponse.getMaxPriorityFeePerGas();
+            if (baseFee.signum() < 0 || priorityFee == null || priorityFee.signum() <= 0) {
+                throw new BizException("RPC returned invalid EIP-1559 fees");
+            }
+            return new Eip1559FeeSuggestion(
+                    baseFee, priorityFee, baseFee.multiply(BigInteger.TWO).add(priorityFee));
+        } catch (BizException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BizException("query EIP-1559 fees failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public BigInteger estimateGas(EvmTransactionRequest request) {
+        if (request == null || !isValidAddress(request.from()) || !isValidAddress(request.to())
+                || request.value() == null || request.value().signum() < 0) {
+            throw new BizException("gas estimation request is invalid");
+        }
+        try {
+            Transaction transaction = Transaction.createFunctionCallTransaction(
+                    request.from(), null, null, null, request.to(), request.value(), request.data());
+            var response = web3j.ethEstimateGas(transaction).send();
+            if (response.hasError()) {
+                throw new BizException("estimate gas failed: " + response.getError().getMessage());
+            }
+            return response.getAmountUsed();
+        } catch (BizException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BizException("estimate gas failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public BigInteger getNativeBalanceWei(String address) {
+        if (!isValidAddress(address)) {
+            throw new BizException("wallet address is invalid");
+        }
+        try {
+            return web3j.ethGetBalance(address, DefaultBlockParameterName.LATEST).send().getBalance();
+        } catch (Exception ex) {
+            throw new BizException("query native balance failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public BigInteger getErc20BalanceRaw(String walletAddress, String tokenAddress) {
+        if (!isValidAddress(walletAddress) || !isValidAddress(tokenAddress)) {
+            throw new BizException("wallet address or token address is invalid");
+        }
+        try {
+            Function function = new Function(
+                    "balanceOf", List.of(new Address(walletAddress)),
+                    List.of(new TypeReference<Uint256>() { }));
+            EthCall response = web3j.ethCall(
+                    Transaction.createEthCallTransaction(walletAddress, tokenAddress,
+                            FunctionEncoder.encode(function)), DefaultBlockParameterName.LATEST).send();
+            if (response.hasError()) {
+                throw new BizException(response.getError().getMessage());
+            }
+            List<Type> values = FunctionReturnDecoder.decode(
+                    response.getValue(), function.getOutputParameters());
+            return values.isEmpty() ? BigInteger.ZERO : (BigInteger) values.get(0).getValue();
+        } catch (BizException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BizException("query ERC-20 raw balance failed: " + ex.getMessage());
         }
     }
 
@@ -155,6 +244,57 @@ public class Web3ServiceImpl implements Web3Service {
             throw ex;
         } catch (Exception ex) {
             throw new BizException("query transaction failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public String getBlockHash(BigInteger blockNumber) {
+        if (blockNumber == null || blockNumber.signum() < 0) {
+            throw new BizException("block number is invalid");
+        }
+        try {
+            var response = web3j.ethGetBlockByNumber(
+                    DefaultBlockParameter.valueOf(blockNumber), false).send();
+            if (response.hasError() || response.getBlock() == null) {
+                throw new BizException("block is unavailable");
+            }
+            return response.getBlock().getHash();
+        } catch (BizException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BizException("query block hash failed: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public ChainTransactionLookup findMinedTransactionBySenderAndNonce(
+            String sender, BigInteger nonce, int lookbackBlocks) {
+        if (!isValidAddress(sender) || nonce == null || nonce.signum() < 0 || lookbackBlocks <= 0) {
+            throw new BizException("replacement transaction lookup is invalid");
+        }
+        try {
+            BigInteger latest = getCurrentBlockNumber();
+            BigInteger minimum = latest.subtract(BigInteger.valueOf(lookbackBlocks - 1L)).max(BigInteger.ZERO);
+            for (BigInteger number = latest; number.compareTo(minimum) >= 0;
+                 number = number.subtract(BigInteger.ONE)) {
+                var response = web3j.ethGetBlockByNumber(DefaultBlockParameter.valueOf(number), true).send();
+                if (response.hasError() || response.getBlock() == null) {
+                    throw new BizException("replacement lookup block is unavailable");
+                }
+                for (var result : response.getBlock().getTransactions()) {
+                    var transaction = (org.web3j.protocol.core.methods.response.EthBlock.TransactionObject) result.get();
+                    if (sender.equalsIgnoreCase(transaction.getFrom()) && nonce.equals(transaction.getNonce())) {
+                        return new ChainTransactionLookup(
+                                transaction.getHash(), transaction.getFrom(), transaction.getNonce(),
+                                number, response.getBlock().getHash());
+                    }
+                }
+            }
+            return null;
+        } catch (BizException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BizException("replacement transaction lookup failed: " + ex.getMessage());
         }
     }
 

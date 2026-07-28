@@ -75,18 +75,21 @@ public class RemoteSignerClient implements TransactionSigner {
     public record RemoteSignPayload(
             String keyId,
             String expectedFromAddress,
+            String transactionFormat,
             long chainId,
             BigInteger nonce,
-            BigInteger gasPrice,
             BigInteger gasLimit,
             String to,
             BigInteger value,
-            String data) {
+            String data,
+            BigInteger maxPriorityFeePerGas,
+            BigInteger maxFeePerGas) {
 
         static RemoteSignPayload from(String keyId, String address, TransactionSignRequest request) {
             return new RemoteSignPayload(
-                    keyId, address, request.chainId(), request.nonce(), request.gasPrice(),
-                    request.gasLimit(), request.to(), request.value(), request.data());
+                    keyId, address, "EIP1559", request.chainId(), request.nonce(),
+                    request.gasLimit(), request.to(), request.value(), request.data(),
+                    request.maxPriorityFeePerGas(), request.maxFeePerGas());
         }
     }
 

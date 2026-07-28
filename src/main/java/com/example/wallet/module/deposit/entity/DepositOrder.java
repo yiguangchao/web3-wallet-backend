@@ -29,6 +29,8 @@ public class DepositOrder {
     private Integer confirmCount;
     private Integer status;
     private Integer sweepTaskStatus;
+    private Integer riskStatus;
+    private LocalDateTime reorgedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

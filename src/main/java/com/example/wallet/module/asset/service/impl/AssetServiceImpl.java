@@ -6,11 +6,13 @@ import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
 import com.example.wallet.module.asset.entity.AssetFreezeDetail;
+import com.example.wallet.module.asset.entity.AssetRiskFreezeDetail;
 import com.example.wallet.module.asset.entity.AssetFreezeStatus;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.mapper.AssetAccountMapper;
 import com.example.wallet.module.asset.mapper.AssetFlowMapper;
 import com.example.wallet.module.asset.mapper.AssetFreezeDetailMapper;
+import com.example.wallet.module.asset.mapper.AssetRiskFreezeDetailMapper;
 import com.example.wallet.module.asset.service.AssetService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -25,6 +27,7 @@ public class AssetServiceImpl implements AssetService {
 
     private static final String DEPOSIT = "DEPOSIT";
     private static final String DEPOSIT_REORG = "DEPOSIT_REORG";
+    private static final String DEPOSIT_REORG_RISK = "DEPOSIT_REORG_RISK";
     private static final String WITHDRAW = "WITHDRAW";
     private static final String WITHDRAW_FREEZE = "WITHDRAW_FREEZE";
     private static final String WITHDRAW_CONFIRM = "WITHDRAW_CONFIRM";
@@ -33,13 +36,16 @@ public class AssetServiceImpl implements AssetService {
     private final AssetAccountMapper assetAccountMapper;
     private final AssetFlowMapper assetFlowMapper;
     private final AssetFreezeDetailMapper freezeDetailMapper;
+    private final AssetRiskFreezeDetailMapper riskFreezeDetailMapper;
 
     public AssetServiceImpl(AssetAccountMapper assetAccountMapper,
                             AssetFlowMapper assetFlowMapper,
-                            AssetFreezeDetailMapper freezeDetailMapper) {
+                            AssetFreezeDetailMapper freezeDetailMapper,
+                            AssetRiskFreezeDetailMapper riskFreezeDetailMapper) {
         this.assetAccountMapper = assetAccountMapper;
         this.assetFlowMapper = assetFlowMapper;
         this.freezeDetailMapper = freezeDetailMapper;
+        this.riskFreezeDetailMapper = riskFreezeDetailMapper;
     }
 
     @Override
@@ -120,6 +126,59 @@ public class AssetServiceImpl implements AssetService {
         insertFlow(baseFlow(userId, asset, DEPOSIT_REORG, businessId, amount.negate(),
                 beforeAvailable, afterAvailable, beforeFrozen, beforeFrozen,
                 txHash, "deposit reversed by chain reorg"));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void freezeDepositReorgRisk(Long userId, SupportedAsset asset,
+                                       BigDecimal amount, Long depositOrderId, String txHash) {
+        validateOperation(userId, asset, depositOrderId);
+        validatePositiveAmount(amount, asset, "reorg risk amount");
+        AssetRiskFreezeDetail existing = riskFreezeDetailMapper
+                .selectByDepositForUpdate(depositOrderId);
+        if (existing != null) {
+            if (!Objects.equals(existing.getUserId(), userId)
+                    || !Objects.equals(existing.getAssetId(), asset.getId())
+                    || existing.getRiskAmount().compareTo(amount) != 0) {
+                throw new BizException("deposit reorg risk identity does not match");
+            }
+            return;
+        }
+
+        AssetAccount account = requireAccountForUpdate(userId, asset);
+        requireAccountInvariant(account);
+        if (findFlow(DEPOSIT_REORG_RISK, depositOrderId) != null) {
+            throw new BizException("deposit reorg risk flow exists without detail");
+        }
+        BigDecimal frozenAmount = account.getAvailableBalance().min(amount);
+        BigDecimal shortfall = amount.subtract(frozenAmount);
+        LocalDateTime now = LocalDateTime.now();
+        BigDecimal beforeAvailable = account.getAvailableBalance();
+        BigDecimal beforeFrozen = account.getFrozenBalance();
+        BigDecimal afterAvailable = beforeAvailable.subtract(frozenAmount);
+        BigDecimal afterFrozen = beforeFrozen.add(frozenAmount);
+        account.setAvailableBalance(afterAvailable);
+        account.setFrozenBalance(afterFrozen);
+        account.setTotalBalance(afterAvailable.add(afterFrozen));
+        updateAccount(account, now);
+
+        AssetRiskFreezeDetail detail = new AssetRiskFreezeDetail();
+        detail.setUserId(userId);
+        detail.setAssetId(asset.getId());
+        detail.setDepositOrderId(depositOrderId);
+        detail.setRiskAmount(amount);
+        detail.setFrozenAmount(frozenAmount);
+        detail.setShortfallAmount(shortfall);
+        detail.setStatus(0);
+        detail.setReason("confirmed deposit removed by chain reorganization");
+        detail.setCreatedAt(now);
+        detail.setUpdatedAt(now);
+        if (riskFreezeDetailMapper.insert(detail) != 1) {
+            throw new BizException("deposit reorg risk freeze creation failed");
+        }
+        insertFlow(baseFlow(userId, asset, DEPOSIT_REORG_RISK, depositOrderId,
+                amount.negate(), beforeAvailable, afterAvailable, beforeFrozen, afterFrozen,
+                txHash, "deposit reorg risk frozen; shortfall=" + shortfall.toPlainString()));
     }
 
     @Override

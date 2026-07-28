@@ -115,14 +115,17 @@ public class DepositBlockScanner {
                     .add(BigInteger.valueOf(properties.getScan().getBatchSize() - 1L))
                     .min(latestBlock);
             List<DetectedDeposit> deposits = new ArrayList<>();
+            List<ScannedBlock> scannedBlocks = new ArrayList<>();
             for (BigInteger blockNumber = nextBlock;
                  blockNumber.compareTo(endBlock) <= 0;
                  blockNumber = blockNumber.add(BigInteger.ONE)) {
-                collectEthDeposits(getBlock(blockNumber, true), wallets, deposits);
+                EthBlock.Block block = getBlock(blockNumber, true);
+                collectEthDeposits(block, wallets, deposits);
+                scannedBlocks.add(new ScannedBlock(
+                        block.getNumber(), block.getHash(), block.getParentHash()));
             }
             collectErc20Deposits(nextBlock, endBlock, wallets, deposits);
-            EthBlock.Block end = getBlock(endBlock, false);
-            persistenceService.saveBatch(deposits, endBlock, end.getHash());
+            persistenceService.saveBatch(deposits, scannedBlocks);
             renewLock(lockHandle, leaseTime);
             nextBlock = endBlock.add(BigInteger.ONE);
         }
@@ -146,15 +149,14 @@ public class DepositBlockScanner {
         }
         EthBlock.Block canonical = getBlock(record.getLastScannedBlock(), false);
         if (record.getLastScannedBlockHash().equalsIgnoreCase(canonical.getHash())) {
+            persistenceService.ensureCheckpoint(new ScannedBlock(
+                    canonical.getNumber(), canonical.getHash(), canonical.getParentHash()));
             return record;
         }
 
-        BigInteger minimum = properties.getScan().getInitialBlock().subtract(BigInteger.ONE);
-        BigInteger rewindBlock = record.getLastScannedBlock()
-                .subtract(BigInteger.valueOf(properties.getScan().getReorgDepth()))
-                .max(minimum);
-        String rewindHash = rewindBlock.compareTo(BigInteger.ZERO) >= 0
-                ? getBlock(rewindBlock, false).getHash() : null;
+        ScannedBlock ancestor = findCommonAncestor(record);
+        BigInteger rewindBlock = ancestor.number();
+        String rewindHash = ancestor.hash();
 
         for (DepositOrder order : persistenceService.listConfirmedAfter(rewindBlock)) {
             if (!isCanonical(order)) {
@@ -165,6 +167,24 @@ public class DepositBlockScanner {
         log.warn("Chain reorg detected, scanner rewound from block {} to {}",
                 record.getLastScannedBlock(), rewindBlock);
         return persistenceService.getOrCreateRecord();
+    }
+
+    ScannedBlock findCommonAncestor(ChainBlockScanRecord record) throws Exception {
+        BigInteger minimum = properties.getScan().getInitialBlock().subtract(BigInteger.ONE);
+        BigInteger searchMinimum = record.getLastScannedBlock()
+                .subtract(BigInteger.valueOf(properties.getScan().getReorgDepth())).max(minimum);
+        for (BigInteger height = record.getLastScannedBlock(); height.compareTo(searchMinimum) >= 0;
+             height = height.subtract(BigInteger.ONE)) {
+            var stored = persistenceService.findScannedBlock(height);
+            if (stored == null) {
+                continue;
+            }
+            EthBlock.Block candidate = getBlock(height, false);
+            if (stored.getBlockHash().equalsIgnoreCase(candidate.getHash())) {
+                return new ScannedBlock(height, candidate.getHash(), candidate.getParentHash());
+            }
+        }
+        throw new IllegalStateException("No common ancestor found within configured reorg depth");
     }
 
     private void updateConfirmations(BigInteger latestBlock) throws Exception {

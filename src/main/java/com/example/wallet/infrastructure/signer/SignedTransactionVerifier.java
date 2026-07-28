@@ -8,6 +8,8 @@ import org.web3j.crypto.Hash;
 import org.web3j.crypto.RawTransaction;
 import org.web3j.crypto.SignedRawTransaction;
 import org.web3j.crypto.TransactionDecoder;
+import org.web3j.crypto.transaction.type.Transaction1559;
+import org.web3j.crypto.transaction.type.TransactionType;
 import org.web3j.utils.Numeric;
 
 public final class SignedTransactionVerifier {
@@ -18,8 +20,9 @@ public final class SignedTransactionVerifier {
     public static RawTransaction unsignedTransaction(TransactionSignRequest request) {
         validateRequest(request);
         return RawTransaction.createTransaction(
-                request.nonce(), request.gasPrice(), request.gasLimit(),
-                request.to(), request.value(), normalizeData(request.data()));
+                request.chainId(), request.nonce(), request.gasLimit(), request.to(),
+                request.value(), normalizeData(request.data()),
+                request.maxPriorityFeePerGas(), request.maxFeePerGas());
     }
 
     public static SignedTransaction verify(TransactionSignRequest request,
@@ -46,12 +49,17 @@ public final class SignedTransactionVerifier {
             if (!expectedFrom.equals(from)) {
                 throw new BizException("signed transaction sender does not match hot wallet");
             }
-            Long signedChainId = signed.getChainId();
-            if (signedChainId == null || signedChainId != request.chainId()) {
+            if (decoded.getType() != TransactionType.EIP1559
+                    || !(decoded.getTransaction() instanceof Transaction1559 eip1559)) {
+                throw new BizException("signed transaction is not EIP-1559");
+            }
+            if (eip1559.getChainId() != request.chainId()) {
                 throw new BizException("signed transaction chain id does not match request");
             }
             requireEqual(decoded.getNonce(), request.nonce(), "nonce");
-            requireEqual(decoded.getGasPrice(), request.gasPrice(), "gas price");
+            requireEqual(eip1559.getMaxPriorityFeePerGas(),
+                    request.maxPriorityFeePerGas(), "max priority fee per gas");
+            requireEqual(eip1559.getMaxFeePerGas(), request.maxFeePerGas(), "max fee per gas");
             requireEqual(decoded.getGasLimit(), request.gasLimit(), "gas limit");
             requireEqual(decoded.getValue(), request.value(), "value");
             if (!normalizeAddress(decoded.getTo(), "signed transaction recipient is invalid")
@@ -72,9 +80,12 @@ public final class SignedTransactionVerifier {
     private static void validateRequest(TransactionSignRequest request) {
         if (request == null || request.chainId() <= 0
                 || request.nonce() == null || request.nonce().signum() < 0
-                || request.gasPrice() == null || request.gasPrice().signum() <= 0
                 || request.gasLimit() == null || request.gasLimit().signum() <= 0
-                || request.value() == null || request.value().signum() < 0) {
+                || request.value() == null || request.value().signum() < 0
+                || request.maxPriorityFeePerGas() == null
+                || request.maxPriorityFeePerGas().signum() <= 0
+                || request.maxFeePerGas() == null
+                || request.maxFeePerGas().compareTo(request.maxPriorityFeePerGas()) < 0) {
             throw new BizException("transaction signing request is invalid");
         }
         normalizeAddress(request.to(), "transaction recipient is invalid");

@@ -18,9 +18,22 @@ public interface Web3Service {
 
     BigInteger getPendingNonce(String address);
 
-    BigInteger getGasPrice();
+    BigInteger getLatestNonce(String address);
+
+    Eip1559FeeSuggestion getEip1559FeeSuggestion();
+
+    BigInteger estimateGas(EvmTransactionRequest request);
+
+    BigInteger getNativeBalanceWei(String address);
+
+    BigInteger getErc20BalanceRaw(String walletAddress, String tokenAddress);
 
     String broadcastRawTransaction(String rawTransaction);
 
     boolean isTransactionKnown(String txHash);
+
+    String getBlockHash(BigInteger blockNumber);
+
+    ChainTransactionLookup findMinedTransactionBySenderAndNonce(
+            String sender, BigInteger nonce, int lookbackBlocks);
 }

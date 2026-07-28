@@ -16,6 +16,9 @@ public interface AssetService {
 
     void reverseDeposit(Long userId, SupportedAsset asset, Long businessId, String txHash);
 
+    void freezeDepositReorgRisk(Long userId, SupportedAsset asset,
+                                BigDecimal amount, Long depositOrderId, String txHash);
+
     void freezeWithdrawal(Long userId, SupportedAsset asset, BigDecimal amount, Long businessId);
 
     void confirmWithdrawal(Long userId, SupportedAsset asset, Long businessId, String txHash);

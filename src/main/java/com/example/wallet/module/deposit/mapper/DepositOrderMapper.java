@@ -34,4 +34,7 @@ public interface DepositOrderMapper extends BaseMapper<DepositOrder> {
     int markSweepTaskIfPending(@Param("id") Long id,
                                @Param("status") Integer status,
                                @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Select("SELECT * FROM deposit_order WHERE id = #{id} FOR UPDATE")
+    DepositOrder selectByIdForUpdate(@Param("id") Long id);
 }
