@@ -10,6 +10,7 @@ import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.chain.mapper.ChainBlockScanRecordMapper;
+import com.example.wallet.module.chain.mapper.ChainScannedBlockMapper;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
@@ -26,6 +27,8 @@ class DepositScanPersistenceServiceTest {
     @Mock
     private ChainBlockScanRecordMapper scanRecordMapper;
     @Mock
+    private ChainScannedBlockMapper scannedBlockMapper;
+    @Mock
     private DepositOrderMapper depositOrderMapper;
     @Mock
     private AssetService assetService;
@@ -39,7 +42,8 @@ class DepositScanPersistenceServiceTest {
         DepositScanProperties properties = new DepositScanProperties();
         properties.setConfirmBlocks(12);
         service = new DepositScanPersistenceService(
-                scanRecordMapper, depositOrderMapper, assetService, supportedAssetService, properties);
+                scanRecordMapper, scannedBlockMapper, depositOrderMapper,
+                assetService, supportedAssetService, properties);
     }
 
     @Test
@@ -66,16 +70,18 @@ class DepositScanPersistenceServiceTest {
     }
 
     @Test
-    void shouldReversePreviouslyConfirmedDepositOnDeepReorg() {
+    void shouldRiskFreezePreviouslyConfirmedDepositOnDeepReorg() {
         DepositOrder order = pendingOrder();
         order.setStatus(DepositScanPersistenceService.STATUS_CONFIRMED);
-        when(depositOrderMapper.selectById(10L)).thenReturn(order);
+        when(depositOrderMapper.selectByIdForUpdate(10L)).thenReturn(order);
         when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset());
 
         service.markConfirmedOrderReorged(10L);
 
-        verify(assetService).reverseDeposit(1L, asset(), 10L, "0xtx");
+        verify(assetService).freezeDepositReorgRisk(
+                1L, asset(), new BigDecimal("1.25"), 10L, "0xtx");
         assertThat(order.getStatus()).isEqualTo(DepositScanPersistenceService.STATUS_REORGED);
+        assertThat(order.getRiskStatus()).isEqualTo(1);
     }
 
     private DepositOrder pendingOrder() {

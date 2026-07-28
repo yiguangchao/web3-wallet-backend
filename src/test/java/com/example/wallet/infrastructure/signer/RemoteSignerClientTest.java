@@ -32,9 +32,10 @@ class RemoteSignerClientTest {
     @BeforeEach
     void setUp() {
         request = new TransactionSignRequest(
-                11155111L, BigInteger.valueOf(7), BigInteger.valueOf(1_000_000_000L),
-                BigInteger.valueOf(21_000), "0x1111111111111111111111111111111111111111",
-                BigInteger.valueOf(123), "0x");
+                11155111L, BigInteger.valueOf(7), BigInteger.valueOf(21_000),
+                "0x1111111111111111111111111111111111111111",
+                BigInteger.valueOf(123), "0x", BigInteger.valueOf(1_000_000_000L),
+                BigInteger.valueOf(3_000_000_000L));
         SignerProperties localProperties = new SignerProperties();
         localProperties.setLocalPrivateKey(PRIVATE_KEY);
         localProperties.setKeyId("withdraw-v1");

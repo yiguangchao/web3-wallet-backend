@@ -36,11 +36,15 @@ class FlywayMySqlMigrationTest {
 
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("12");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("13");
         assertThat(count("SELECT COUNT(*) FROM supported_asset")).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM information_schema.tables "
                 + "WHERE table_schema = DATABASE() AND table_name = 'asset_freeze_detail'"))
                 .isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM information_schema.tables "
+                + "WHERE table_schema = DATABASE() AND table_name IN "
+                + "('chain_scanned_block','asset_risk_freeze_detail')"))
+                .isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM information_schema.columns "
                 + "WHERE table_schema = DATABASE() AND column_name = 'asset_id' "
                 + "AND table_name IN ('asset_account','asset_flow','deposit_order',"
@@ -60,7 +64,7 @@ class FlywayMySqlMigrationTest {
         Flyway latest = flyway(null);
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("12");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("13");
         assertThat(count("SELECT COUNT(*) FROM asset_account WHERE asset_id = 7001")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM wallet_address WHERE verified_at IS NULL")).isEqualTo(1);
     }
@@ -251,6 +255,42 @@ class FlywayMySqlMigrationTest {
                 .isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> execute("UPDATE transaction_outbox "
                 + "SET status=1, locked_by=NULL, locked_at=NULL WHERE id=30"))
+                .isInstanceOf(SQLException.class);
+    }
+
+    @Test
+    void shouldEnforceEip1559AndRiskFreezeInvariants() throws Exception {
+        flyway(null).migrate();
+        String wallet = "0x1111111111111111111111111111111111111111";
+        String recipient = "0x2222222222222222222222222222222222222222";
+        String hash = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        execute("INSERT INTO withdraw_order "
+                + "(id,user_id,asset_id,chain_id,chain,token_symbol,to_address,amount,fee,status,"
+                + "hot_wallet_address,nonce,signer_key_id) VALUES "
+                + "(40,10,7001,11155111,'ETH_SEPOLIA','ETH','" + recipient + "',"
+                + "1,0.1,1,'" + wallet + "',12,'withdraw-v1')");
+        execute("INSERT INTO withdraw_chain_transaction "
+                + "(id,withdraw_order_id,chain_id,hot_wallet_address,nonce,signer_key_id,"
+                + "transaction_type,transaction_format,to_address,value_wei,transaction_data,estimated_gas,"
+                + "gas_price,max_priority_fee_per_gas,max_fee_per_gas,gas_limit,max_total_fee_wei,"
+                + "raw_transaction,tx_hash,status) VALUES "
+                + "(41,40,11155111,'" + wallet + "',12,'withdraw-v1','NATIVE','EIP1559','"
+                + recipient + "',1,'0x',21000,3,1,3,25200,75600,'0xraw','" + hash + "',0)");
+        assertThat(count("SELECT COUNT(*) FROM withdraw_chain_transaction "
+                + "WHERE id=41 AND transaction_format='EIP1559' AND max_total_fee_wei=75600"))
+                .isEqualTo(1);
+        assertThatThrownBy(() -> execute("UPDATE withdraw_chain_transaction "
+                + "SET max_total_fee_wei=1 WHERE id=41"))
+                .isInstanceOf(SQLException.class);
+
+        execute("INSERT INTO deposit_order "
+                + "(id,user_id,asset_id,chain,token_symbol,from_address,to_address,amount,tx_hash,"
+                + "log_index,block_number,confirm_count,status,sweep_task_status,risk_status) VALUES "
+                + "(50,10,7001,'ETH_SEPOLIA','ETH','" + wallet + "','" + recipient + "',"
+                + "1,'" + hash + "',-1,100,12,2,0,1)");
+        assertThatThrownBy(() -> execute("INSERT INTO asset_risk_freeze_detail "
+                + "(id,user_id,asset_id,deposit_order_id,risk_amount,frozen_amount,shortfall_amount,status,reason) "
+                + "VALUES (51,10,7001,50,1,0.4,0.5,0,'reorg')"))
                 .isInstanceOf(SQLException.class);
     }
 

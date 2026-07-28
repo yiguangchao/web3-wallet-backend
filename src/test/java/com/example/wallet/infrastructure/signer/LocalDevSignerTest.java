@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.SignedRawTransaction;
 import org.web3j.crypto.TransactionDecoder;
+import org.web3j.crypto.transaction.type.Transaction1559;
 
 class LocalDevSignerTest {
 
@@ -27,11 +28,12 @@ class LocalDevSignerTest {
         request = new TransactionSignRequest(
                 11155111L,
                 BigInteger.valueOf(7),
-                BigInteger.valueOf(1_000_000_000L),
                 BigInteger.valueOf(21_000),
                 "0x1111111111111111111111111111111111111111",
                 BigInteger.valueOf(123),
-                "0x");
+                "0x",
+                BigInteger.valueOf(1_000_000_000L),
+                BigInteger.valueOf(3_000_000_000L));
     }
 
     @Test
@@ -43,7 +45,7 @@ class LocalDevSignerTest {
         assertThat(signer.keyId()).isEqualTo("dev-key");
         SignedRawTransaction decoded = (SignedRawTransaction) TransactionDecoder.decode(signed.rawTransaction());
         assertThat(decoded.getNonce()).isEqualTo(BigInteger.valueOf(7));
-        assertThat(decoded.getChainId()).isEqualTo(11155111L);
+        assertThat(((Transaction1559) decoded.getTransaction()).getChainId()).isEqualTo(11155111L);
         assertThat(decoded.getFrom()).isEqualToIgnoringCase(signer.hotWalletAddress());
     }
 }

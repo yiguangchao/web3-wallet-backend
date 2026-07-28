@@ -15,10 +15,12 @@ import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
 import com.example.wallet.module.asset.entity.AssetFreezeDetail;
 import com.example.wallet.module.asset.entity.AssetFreezeStatus;
+import com.example.wallet.module.asset.entity.AssetRiskFreezeDetail;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.mapper.AssetAccountMapper;
 import com.example.wallet.module.asset.mapper.AssetFlowMapper;
 import com.example.wallet.module.asset.mapper.AssetFreezeDetailMapper;
+import com.example.wallet.module.asset.mapper.AssetRiskFreezeDetailMapper;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,19 +38,23 @@ class AssetServiceImplTest {
     private AssetFlowMapper assetFlowMapper;
     @Mock
     private AssetFreezeDetailMapper freezeDetailMapper;
+    @Mock
+    private AssetRiskFreezeDetailMapper riskFreezeDetailMapper;
 
     private AssetServiceImpl assetService;
     private SupportedAsset asset;
 
     @BeforeEach
     void setUp() {
-        assetService = new AssetServiceImpl(assetAccountMapper, assetFlowMapper, freezeDetailMapper);
+        assetService = new AssetServiceImpl(
+                assetAccountMapper, assetFlowMapper, freezeDetailMapper, riskFreezeDetailMapper);
         asset = asset();
         lenient().when(assetAccountMapper.updateById(any(AssetAccount.class))).thenReturn(1);
         lenient().when(assetFlowMapper.insert(any(AssetFlow.class))).thenReturn(1);
         lenient().when(freezeDetailMapper.insert(any(AssetFreezeDetail.class))).thenReturn(1);
         lenient().when(freezeDetailMapper.transitionIfCurrent(any(), any(), any(), any(), any()))
                 .thenReturn(1);
+        lenient().when(riskFreezeDetailMapper.insert(any(AssetRiskFreezeDetail.class))).thenReturn(1);
     }
 
     @Test
@@ -97,6 +103,29 @@ class AssetServiceImplTest {
         assertBalances(account, "2", "5", "7");
         verify(assetAccountMapper, never()).updateById(any(AssetAccount.class));
         verify(assetFlowMapper, never()).insert(any(AssetFlow.class));
+    }
+
+    @Test
+    void shouldFreezeAvailableBalanceAndRecordShortfallForReorgRisk() {
+        AssetAccount account = account("2", "1");
+        when(assetAccountMapper.selectForUpdate(1L, 7001L)).thenReturn(account);
+        when(riskFreezeDetailMapper.selectByDepositForUpdate(80L)).thenReturn(null);
+        when(assetFlowMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+
+        assetService.freezeDepositReorgRisk(
+                1L, asset, new BigDecimal("3"), 80L, "0xreorg");
+
+        assertBalances(account, "0", "3", "3");
+        ArgumentCaptor<AssetRiskFreezeDetail> detail =
+                ArgumentCaptor.forClass(AssetRiskFreezeDetail.class);
+        verify(riskFreezeDetailMapper).insert(detail.capture());
+        assertThat(detail.getValue().getRiskAmount()).isEqualByComparingTo("3");
+        assertThat(detail.getValue().getFrozenAmount()).isEqualByComparingTo("2");
+        assertThat(detail.getValue().getShortfallAmount()).isEqualByComparingTo("1");
+        ArgumentCaptor<AssetFlow> flow = ArgumentCaptor.forClass(AssetFlow.class);
+        verify(assetFlowMapper).insert(flow.capture());
+        assertThat(flow.getValue().getBusinessType()).isEqualTo("DEPOSIT_REORG_RISK");
+        assertFlowSnapshotsPreserveInvariant(flow.getValue());
     }
 
     @Test
