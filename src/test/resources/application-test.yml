@@ -9,6 +9,8 @@ web3:
 wallet:
   withdraw-broadcast:
     enabled: false
+  withdraw-chain:
+    max-total-fee-wei: 20000000000000000
   signer:
     local-private-key: "0000000000000000000000000000000000000000000000000000000000000001"
     key-id: test-withdraw-key

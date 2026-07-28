@@ -1,6 +1,7 @@
 package com.example.wallet.module.withdraw.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -10,7 +11,7 @@ import static org.mockito.Mockito.when;
 import com.example.wallet.infrastructure.signer.SignedTransaction;
 import com.example.wallet.infrastructure.signer.TransactionSignRequest;
 import com.example.wallet.infrastructure.signer.TransactionSigner;
-import com.example.wallet.infrastructure.web3.Web3Properties;
+import com.example.wallet.infrastructure.web3.Eip1559FeeSuggestion;
 import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.withdraw.entity.TransactionOutbox;
@@ -20,6 +21,7 @@ import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
 import com.example.wallet.module.withdraw.mapper.TransactionOutboxMapper;
 import com.example.wallet.module.withdraw.mapper.WithdrawChainTransactionMapper;
+import com.example.wallet.module.withdraw.config.WithdrawChainProperties;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,9 +54,7 @@ class WithdrawTransactionPreparationServiceTest {
 
     @BeforeEach
     void setUp() {
-        Web3Properties properties = new Web3Properties();
-        properties.setEthTransferGasLimit(21_000L);
-        properties.setErc20TransferGasLimit(100_000L);
+        WithdrawChainProperties properties = new WithdrawChainProperties();
         service = new WithdrawTransactionPreparationService(
                 nonceService, signer, web3Service, properties, chainTransactionMapper, outboxMapper);
     }
@@ -67,7 +67,12 @@ class WithdrawTransactionPreparationServiceTest {
         when(signer.keyId()).thenReturn("withdraw-v1");
         when(nonceService.allocateForWithdrawal(99L, 11155111L, HOT_WALLET, "withdraw-v1"))
                 .thenReturn(new NonceAllocation(11155111L, HOT_WALLET, BigInteger.valueOf(9), "withdraw-v1"));
-        when(web3Service.getGasPrice()).thenReturn(BigInteger.valueOf(1_000_000_000L));
+        when(web3Service.getEip1559FeeSuggestion()).thenReturn(new Eip1559FeeSuggestion(
+                BigInteger.valueOf(1_000_000_000L), BigInteger.valueOf(1_000_000_000L),
+                BigInteger.valueOf(3_000_000_000L)));
+        when(web3Service.estimateGas(any())).thenReturn(BigInteger.valueOf(21_000));
+        when(web3Service.getNativeBalanceWei(HOT_WALLET))
+                .thenReturn(new BigInteger("2000000000000000000"));
         when(signer.sign(any(TransactionSignRequest.class)))
                 .thenReturn(new SignedTransaction(RAW, HASH, HOT_WALLET));
         when(chainTransactionMapper.insert(any(WithdrawChainTransaction.class))).thenReturn(1);
@@ -84,6 +89,10 @@ class WithdrawTransactionPreparationServiceTest {
         assertThat(transaction.getValueWei()).isEqualTo(new BigInteger("1000000000000000000"));
         assertThat(transaction.getRawTransaction()).isEqualTo(RAW);
         assertThat(transaction.getTxHash()).isEqualTo(HASH);
+        assertThat(transaction.getTransactionFormat()).isEqualTo("EIP1559");
+        assertThat(transaction.getEstimatedGas()).isEqualTo(BigInteger.valueOf(21_000));
+        assertThat(transaction.getGasLimit()).isEqualTo(BigInteger.valueOf(25_200));
+        assertThat(transaction.getMaxFeePerGas()).isEqualTo(BigInteger.valueOf(3_000_000_000L));
 
         ArgumentCaptor<TransactionOutbox> outboxCaptor = ArgumentCaptor.forClass(TransactionOutbox.class);
         verify(outboxMapper).insert(outboxCaptor.capture());
@@ -106,6 +115,64 @@ class WithdrawTransactionPreparationServiceTest {
         verify(chainTransactionMapper, never()).insert(any(WithdrawChainTransaction.class));
     }
 
+    @Test
+    void shouldRejectTransactionWhoseMaximumGasFeeExceedsCap() {
+        arrangeNonce();
+        when(web3Service.getEip1559FeeSuggestion()).thenReturn(new Eip1559FeeSuggestion(
+                BigInteger.valueOf(500_000_000_000L), BigInteger.valueOf(1_000_000_000L),
+                BigInteger.valueOf(1_000_000_000_000L)));
+        when(web3Service.estimateGas(any())).thenReturn(BigInteger.valueOf(21_000));
+
+        assertThatThrownBy(() -> service.prepare(order(), ethAsset()))
+                .hasMessage("maximum transaction fee exceeds configured cap");
+
+        verify(web3Service, never()).getNativeBalanceWei(any());
+        verify(signer, never()).sign(any());
+    }
+
+    @Test
+    void shouldRejectNativeWithdrawalWhenHotWalletCannotCoverValueAndGas() {
+        arrangeNonce();
+        arrangeNormalFees();
+        when(web3Service.getNativeBalanceWei(HOT_WALLET))
+                .thenReturn(new BigInteger("1000000000000000000"));
+
+        assertThatThrownBy(() -> service.prepare(order(), ethAsset()))
+                .hasMessage("hot wallet ETH balance is insufficient for withdrawal and gas");
+
+        verify(signer, never()).sign(any());
+    }
+
+    @Test
+    void shouldRejectErc20WithdrawalWhenHotWalletTokenBalanceIsInsufficient() {
+        SupportedAsset asset = erc20Asset();
+        arrangeNonce();
+        arrangeNormalFees();
+        when(web3Service.getNativeBalanceWei(HOT_WALLET))
+                .thenReturn(new BigInteger("1000000000000000000"));
+        when(web3Service.getErc20BalanceRaw(HOT_WALLET, asset.getTokenAddress()))
+                .thenReturn(BigInteger.valueOf(999_999));
+
+        assertThatThrownBy(() -> service.prepare(order(), asset))
+                .hasMessage("hot wallet token balance is insufficient for withdrawal");
+
+        verify(signer, never()).sign(any());
+    }
+
+    private void arrangeNonce() {
+        when(signer.hotWalletAddress()).thenReturn(HOT_WALLET);
+        when(signer.keyId()).thenReturn("withdraw-v1");
+        when(nonceService.allocateForWithdrawal(99L, 11155111L, HOT_WALLET, "withdraw-v1"))
+                .thenReturn(new NonceAllocation(11155111L, HOT_WALLET, BigInteger.valueOf(9), "withdraw-v1"));
+    }
+
+    private void arrangeNormalFees() {
+        when(web3Service.getEip1559FeeSuggestion()).thenReturn(new Eip1559FeeSuggestion(
+                BigInteger.valueOf(1_000_000_000L), BigInteger.valueOf(1_000_000_000L),
+                BigInteger.valueOf(3_000_000_000L)));
+        when(web3Service.estimateGas(any())).thenReturn(BigInteger.valueOf(21_000));
+    }
+
     private WithdrawOrder order() {
         WithdrawOrder order = new WithdrawOrder();
         order.setId(99L);
@@ -121,6 +188,14 @@ class WithdrawTransactionPreparationServiceTest {
         asset.setChainId(11155111L);
         asset.setDecimals(18);
         asset.setTokenAddress(null);
+        return asset;
+    }
+
+    private SupportedAsset erc20Asset() {
+        SupportedAsset asset = new SupportedAsset();
+        asset.setChainId(11155111L);
+        asset.setDecimals(6);
+        asset.setTokenAddress("0x3333333333333333333333333333333333333333");
         return asset;
     }
 }

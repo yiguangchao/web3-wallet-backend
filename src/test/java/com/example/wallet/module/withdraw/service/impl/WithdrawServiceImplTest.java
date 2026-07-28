@@ -26,6 +26,7 @@ import com.example.wallet.module.withdraw.mapper.WithdrawOrderMapper;
 import com.example.wallet.module.withdraw.service.PreparedChainTransaction;
 import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import com.example.wallet.module.withdraw.service.WithdrawTransactionPreparationService;
+import com.example.wallet.module.withdraw.service.WithdrawChainLifecycleService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.web3j.protocol.core.methods.response.TransactionReceipt;
 
 @ExtendWith(MockitoExtension.class)
 class WithdrawServiceImplTest {
@@ -54,6 +54,8 @@ class WithdrawServiceImplTest {
     private WithdrawAuditService withdrawAuditService;
     @Mock
     private WithdrawTransactionPreparationService transactionPreparationService;
+    @Mock
+    private WithdrawChainLifecycleService chainLifecycleService;
 
     private WithdrawServiceImpl withdrawService;
 
@@ -61,7 +63,7 @@ class WithdrawServiceImplTest {
     void setUp() {
         withdrawService = new WithdrawServiceImpl(
                 withdrawOrderMapper, web3Service, assetService, supportedAssetService,
-                withdrawAuditService, transactionPreparationService);
+                withdrawAuditService, transactionPreparationService, chainLifecycleService);
         lenient().when(withdrawOrderMapper.insert(any(WithdrawOrder.class))).thenReturn(1);
         lenient().when(withdrawOrderMapper.transitionStatus(
                 any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
@@ -296,70 +298,12 @@ class WithdrawServiceImplTest {
     }
 
     @Test
-    void shouldMarkSuccessfulReceiptAsMinedBeforeConfirmingFunds() {
-        WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
-        order.setTxHash(TX_HASH);
-        TransactionReceipt receipt = new TransactionReceipt();
-        receipt.setStatus("0x1");
-        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
-        when(web3Service.getTransactionReceipt(TX_HASH)).thenReturn(receipt);
+    void shouldDelegateChainStatusSynchronization() {
+        when(chainLifecycleService.sync(99L)).thenReturn(WithdrawStatus.MINED.getCode());
+
         assertThat(withdrawService.syncWithdrawStatus(99L)).isEqualTo(WithdrawStatus.MINED.getCode());
 
-        verifyNoInteractions(assetService);
-        verify(withdrawOrderMapper).transitionStatus(
-                eq(99L), eq(WithdrawStatus.BROADCASTED.getCode()),
-                eq(WithdrawStatus.MINED.getCode()), eq(TX_HASH),
-                eq("withdraw transaction mined successfully"), eq(null), any());
-    }
-
-    @Test
-    void shouldConfirmMinedWithdrawalAndDeductFrozenFunds() {
-        WithdrawOrder order = ethOrder(WithdrawStatus.MINED.getCode());
-        order.setTxHash(TX_HASH);
-        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
-        SupportedAsset asset = ethAsset();
-        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
-
-        assertThat(withdrawService.syncWithdrawStatus(99L)).isEqualTo(WithdrawStatus.CONFIRMED.getCode());
-
-        verify(assetService).confirmWithdrawal(1L, asset, 99L, TX_HASH);
-        verify(withdrawOrderMapper).transitionStatus(
-                eq(99L), eq(WithdrawStatus.MINED.getCode()),
-                eq(WithdrawStatus.CONFIRMED.getCode()), eq(TX_HASH),
-                eq("withdraw transaction confirmed and frozen asset deducted"), eq(null), any());
-    }
-
-    @Test
-    void shouldMoveFailedReceiptToManualReviewWithoutReleasingFunds() {
-        WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
-        order.setTxHash(TX_HASH);
-        TransactionReceipt receipt = new TransactionReceipt();
-        receipt.setStatus("0x0");
-        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
-        when(web3Service.getTransactionReceipt(TX_HASH)).thenReturn(receipt);
-        assertThat(withdrawService.syncWithdrawStatus(99L))
-                .isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
-
-        verifyNoInteractions(assetService);
-        assertThat(order.getManualReviewReason())
-                .isEqualTo("withdraw transaction receipt indicates failure");
-    }
-
-    @Test
-    void shouldMoveReceiptQueryExceptionToManualReview() {
-        WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
-        order.setTxHash(TX_HASH);
-        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
-        when(web3Service.getTransactionReceipt(TX_HASH))
-                .thenThrow(new IllegalStateException("rpc unavailable"));
-
-        assertThatThrownBy(() -> withdrawService.syncWithdrawStatus(99L))
-                .isInstanceOf(WithdrawManualReviewException.class)
-                .hasMessage("withdraw receipt query requires manual review");
-
-        assertThat(order.getStatus()).isEqualTo(WithdrawStatus.MANUAL_REVIEW.getCode());
-        assertThat(order.getManualReviewReason()).contains("rpc unavailable");
-        verifyNoInteractions(assetService);
+        verify(chainLifecycleService).sync(99L);
     }
 
     private WithdrawApplyRequest request() {
