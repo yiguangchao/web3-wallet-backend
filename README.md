@@ -21,7 +21,7 @@ Web3 Java 后端/区块链托管钱包服务。当前版本基于 Spring Boot + 
 
 - `module.user`: 注册、登录、用户数据
 - `module.wallet`: 托管充值地址分配、地址生命周期、充值归集、ETH/ERC-20 余额查询
-- `module.asset`: 资产账户、资产流水
+- `module.asset`: 服务端资产注册表、资产账户、资产流水
 - `module.chain`: 当前区块、交易回执查询
 - `module.deposit`: ETH/ERC-20 扫块、确认入账、链重组处理
 - `module.withdraw`: 提现申请、审核、签名广播、状态同步
@@ -99,19 +99,20 @@ docker compose up -d redis
 - 基于 BIP-44 的平台托管充值地址分配
 - 地址派生索引、路径和密钥版本管理
 - 地址全局唯一、启用、停用和退役
+- 外部钱包 challenge、EIP-191 签名验权和防重放绑定
 - 校验以太坊地址格式
 - 查询 ETH 余额
 - 查询 ERC-20 Token 余额
 - 查询 Sepolia 当前区块与交易回执
 - ETH/ERC-20 扫块、确认数、断点续扫和链重组处理
-- 充值确认后创建异步归集任务
+- 充值确认独立入账，归集补偿任务异步补建归集单
 - ETH/ERC-20 充值地址归集、失败重试和回执确认
 - 提现申请幂等、余额校验、资产冻结与冻结流水
 - 提现审核、广播、回执同步和操作审计
 
 ## 托管充值地址
 
-用户不再绑定自己控制私钥的外部地址。系统从平台 HD 主钱包为用户分配充值地址：
+用户不再把自己控制私钥的外部地址作为充值地址。系统从平台 HD 主钱包为用户分配充值地址：
 
 ```text
 平台助记词
@@ -139,7 +140,7 @@ GET /api/wallet/deposit-addresses
 Authorization: Bearer <token>
 ```
 
-同一用户、同一链最多有一个 `ACTIVE` 地址。后台可以将地址设为 `DISABLED` 或 `RETIRED`，之后用户可以获得新地址。历史地址永不分配给其他用户，并会继续参与扫描，避免迟到充值丢失。
+同一用户、同一链最多有一个 `ACTIVE` 地址。后台可以将地址设为 `DISABLED` 或 `RETIRED`，之后用户可以获得新地址。历史地址永不分配给其他用户；扫描器只加载 `PLATFORM_CUSTODY + DEPOSIT + ACTIVE` 地址，停用前必须完成业务侧风险确认。`RETIRED` 是终态，不能恢复为启用或停用。
 
 后台地址状态与归集接口：
 
@@ -149,6 +150,32 @@ Authorization: Bearer <token>
 - `POST /api/admin/wallet/sweeps/run`
 
 `OPERATOR` 或 `ADMIN` 才能调用这些接口。
+
+## 外部钱包所有权验证
+
+外部钱包仅用于证明用户与链上地址的关系，不能作为充值扫描和内部资产入账依据。绑定过程使用 EIP-191 `personal_sign`：
+
+```http
+POST /api/wallet/external-addresses/challenge
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"chain":"ETH_SEPOLIA","address":"0x用户钱包地址"}
+```
+
+客户端必须原样签署响应中的 `message`，然后提交签名：
+
+```http
+POST /api/wallet/external-addresses/verify
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"challengeId":123,"signature":"0x..."}
+```
+
+challenge 默认 5 分钟过期且只能成功使用一次。消息固定绑定用途、用户 ID、链、地址、随机 nonce、签发时间和过期时间，并通过数据库条件更新原子消费；签名恢复地址必须与请求地址完全一致。`wallet_address` 使用 `(chain, address)` 全局唯一约束，同一个链上地址不能绑定给多个用户。已验证地址可通过 `GET /api/wallet/external-addresses` 查询。
+
+可通过 `WALLET_SIGNATURE_CHALLENGE_TTL` 修改有效期，单位为毫秒。
 
 ## 托管钱包配置
 
@@ -168,21 +195,38 @@ ETH 归集发送“余额减 Gas 和配置保留额”。ERC-20 归集发送地�
 
 ## 提现冻结
 
-`POST /api/withdraw/apply` 需要客户端提供唯一 `requestId`。相同用户重复提交同一个 `requestId` 时返回原订单，不会重复冻结。当前手续费按提现资产同币种收取，冻结金额为 `amount + fee`。
+`POST /api/withdraw/apply` 需要客户端提供唯一 `requestId` 和服务端注册的 `assetCode`。相同用户重复提交同一个 `requestId` 时返回原订单，不会重复冻结。链、合约地址、symbol、decimals、限额和手续费全部从 `supported_asset` 读取，冻结金额为 `amount + platformWithdrawFee`。旧版 `chain`、`tokenSymbol`、`tokenAddress`、`tokenDecimals` 和 `fee` 字段暂时可以反序列化，但已废弃且业务层完全忽略。
 
 ```json
 {
   "requestId": "withdraw-20260706-001",
-  "chain": "ETH_SEPOLIA",
-  "tokenSymbol": "ETH",
-  "tokenAddress": null,
+  "assetCode": "ETH",
   "toAddress": "0x1111111111111111111111111111111111111111",
-  "amount": 0.01,
-  "fee": 0.0001
+  "amount": 0.01
 }
 ```
 
 订单状态 `0` 表示资产已冻结、等待审核。申请失败或余额不足时，订单和资产变更会在同一事务中回滚。
+
+V9 新增 `asset_freeze_detail`，提现本金、平台手续费和实际冻结金额都由服务端固化。冻结明细只允许以下单向状态迁移：
+
+```text
+FROZEN -> CONFIRMED
+FROZEN -> RELEASED
+```
+
+`CONFIRMED` 与 `RELEASED` 互斥且都是终态。确认和释放不再接收客户端金额或手续费，而是在事务内通过 `SELECT FOR UPDATE` 锁定冻结明细与资产账户，并使用冻结时保存的金额结算。账户更新、冻结状态迁移和资金流水写入处于同一事务；资金流水通过 `(business_type, business_id)` 唯一约束保证幂等。
+
+所有资金操作在更新前后都检查以下不变量，数据库也通过 V9 `CHECK` 约束兜底：
+
+```text
+available >= 0
+frozen >= 0
+total = available + frozen
+```
+
+升级生产数据库前，先执行只读检查脚本 `docs/sql/V9__asset_ledger_preflight.sql`，确认历史账户、提现订单和流水满足 V9 约束后再执行 Flyway 迁移。
+
 ## 后续计划
 
 - Vault/KMS/HSM 或独立签名服务
@@ -216,7 +260,7 @@ Phase 6：Docker 镜像、部署脚本、监控告警，待开发
 
 ## 充值扫描配置
 
-扫描任务默认关闭。数据库结构由 Flyway 自动升级；在 `application.yml` 中设置接近当前高度的 `initial-block` 后再启用扫描：
+扫描任务默认关闭。数据库结构由 Flyway 自动升级；在 `application.yml` 中设置接近当前高度的 `initial-block` 后再启用扫描。ETH 和 ERC-20 白名单、decimals 与确认数来自 `supported_asset`，不再从 YAML 接收 Token 元数据：
 
 ```yaml
 wallet:
@@ -230,10 +274,10 @@ wallet:
     fixed-delay: 15000
     lock-key-prefix: wallet:deposit-scan:lock:
     lock-lease: 300000
-    tokens:
-      - symbol: USDC
-        address: Sepolia Token 合约地址
-        decimals: 6
 ```
 
-扫描器使用 Redis 分布式锁保证同一条链同一时间仅有一个实例工作，并在每个扫描批次后续租；`lock-lease` 应大于单批次最大处理时间。扫描器支持 ETH 转账和配置白名单内的 ERC-20 `Transfer` 日志。充值状态为 `0` 时等待确认，`1` 表示已确认入账，`2` 表示因链重组失效。扫描进度和区块哈希保存在 `chain_block_scan_record`，重启后会从上次高度继续。
+扫描器使用 Redis 分布式锁保证同一条链同一时间仅有一个实例工作，并在每个扫描批次后续租；`lock-lease` 应大于单批次最大处理时间。只有启用充值的注册资产才会创建充值订单。充值状态为 `0` 时等待确认，`1` 表示已确认入账，`2` 表示因链重组失效。用户入账事务不依赖归集任务创建；关闭归集时订单保持待补偿，重新启用后 worker 会补建历史归集单。扫描进度和区块哈希保存在 `chain_block_scan_record`，重启后会从上次高度继续。
+
+## 资产注册表
+
+V8 新增 `supported_asset`，初始注册 Sepolia ETH 与 USDC。`asset_code` 全局唯一，原生资产使用 `(chain_id, NATIVE)` 唯一定位，ERC-20 使用 `(chain_id, normalized_token_address)` 唯一定位。`asset_account` 使用 `UNIQUE(user_id, asset_id)`，避免 MySQL 可空合约地址导致重复原生资产账户。升级前先执行只读检查脚本 `docs/sql/V8__supported_asset_preflight.sql`；脚本发现重复账户或非法地址时必须人工清洗，迁移不会自动合并存在资金差异的账户。

@@ -9,11 +9,13 @@ import static org.mockito.Mockito.when;
 import com.example.wallet.infrastructure.security.LoginUser;
 import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.asset.service.AssetService;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.deposit.controller.MockDepositController;
 import com.example.wallet.module.deposit.dto.MockConfirmDepositRequest;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
 import com.example.wallet.module.deposit.service.MockDepositService;
 import com.example.wallet.module.deposit.service.impl.MockDepositServiceImpl;
+import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,8 @@ class MockDepositIsolationTest {
             .withUserConfiguration(MockDepositController.class, MockDepositServiceImpl.class)
             .withBean(DepositOrderMapper.class, () -> mock(DepositOrderMapper.class))
             .withBean(AssetService.class, () -> mock(AssetService.class))
+            .withBean(SupportedAssetService.class, () -> mock(SupportedAssetService.class))
+            .withBean(CustodyDepositAddressMapper.class, () -> mock(CustodyDepositAddressMapper.class))
             .withBean(Web3Service.class, () -> mock(Web3Service.class));
 
     @AfterEach
