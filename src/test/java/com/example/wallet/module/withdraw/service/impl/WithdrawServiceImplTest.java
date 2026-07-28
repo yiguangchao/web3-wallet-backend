@@ -13,6 +13,8 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.asset.service.AssetService;
+import com.example.wallet.module.asset.service.SupportedAssetService;
+import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
@@ -41,13 +43,16 @@ class WithdrawServiceImplTest {
     @Mock
     private AssetService assetService;
     @Mock
+    private SupportedAssetService supportedAssetService;
+    @Mock
     private WithdrawAuditService withdrawAuditService;
 
     private WithdrawServiceImpl withdrawService;
 
     @BeforeEach
     void setUp() {
-        withdrawService = new WithdrawServiceImpl(withdrawOrderMapper, web3Service, assetService, withdrawAuditService);
+        withdrawService = new WithdrawServiceImpl(
+                withdrawOrderMapper, web3Service, assetService, supportedAssetService, withdrawAuditService);
     }
 
     @Test
@@ -55,7 +60,8 @@ class WithdrawServiceImplTest {
         WithdrawApplyRequest request = request();
         when(withdrawOrderMapper.selectOne(any(Wrapper.class))).thenReturn(null);
         when(web3Service.isValidAddress(TO_ADDRESS)).thenReturn(true);
-        when(web3Service.isValidAddress(TOKEN_ADDRESS)).thenReturn(true);
+        SupportedAsset asset = usdcAsset();
+        when(supportedAssetService.getRequiredWithdrawAsset("USDC")).thenReturn(asset);
         when(withdrawOrderMapper.insert(any(WithdrawOrder.class))).thenAnswer(invocation -> {
             WithdrawOrder order = invocation.getArgument(0);
             order.setId(99L);
@@ -71,12 +77,11 @@ class WithdrawServiceImplTest {
         assertThat(order.getRequestId()).isEqualTo("request-001");
         assertThat(order.getTokenAddress()).isEqualTo(TOKEN_ADDRESS.toLowerCase());
         assertThat(order.getTokenDecimals()).isEqualTo(6);
+        assertThat(order.getAssetId()).isEqualTo(7002L);
+        assertThat(order.getFee()).isEqualByComparingTo("1");
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.PENDING_REVIEW.getCode());
         verify(assetService).freezeWithdrawal(
-                1L, "ETH_SEPOLIA", "USDC", TOKEN_ADDRESS.toLowerCase(),
-                new BigDecimal("10.000000000000000000"),
-                new BigDecimal("0.100000000000000000"),
-                99L);
+                1L, asset, new BigDecimal("10.000000"), 99L);
     }
 
     @Test
@@ -105,9 +110,25 @@ class WithdrawServiceImplTest {
     }
 
     @Test
+    void shouldRejectAmountWithMoreDecimalsThanServerAssetAllows() {
+        WithdrawApplyRequest request = request();
+        request.setAmount(new BigDecimal("1.0000001"));
+        when(withdrawOrderMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(web3Service.isValidAddress(TO_ADDRESS)).thenReturn(true);
+        when(supportedAssetService.getRequiredWithdrawAsset("USDC")).thenReturn(usdcAsset());
+
+        assertThatThrownBy(() -> withdrawService.apply(1L, request))
+                .isInstanceOf(BizException.class)
+                .hasMessage("withdraw amount has too many decimal places");
+        verify(withdrawOrderMapper, never()).insert(any(WithdrawOrder.class));
+        verifyNoInteractions(assetService);
+    }
+
+    @Test
     void shouldApprovePendingWithdrawOrder() {
         WithdrawOrder order = ethOrder(WithdrawStatus.PENDING_REVIEW.getCode());
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(ethAsset());
 
         assertThat(withdrawService.approveWithdraw(99L, "risk review passed"))
                 .isEqualTo(WithdrawStatus.APPROVED.getCode());
@@ -123,12 +144,13 @@ class WithdrawServiceImplTest {
     void shouldRejectPendingWithdrawOrderAndReleaseFrozenAsset() {
         WithdrawOrder order = ethOrder(WithdrawStatus.PENDING_REVIEW.getCode());
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        SupportedAsset asset = ethAsset();
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
 
         assertThat(withdrawService.rejectWithdraw(99L, "risk review rejected"))
                 .isEqualTo(WithdrawStatus.CANCELLED.getCode());
 
-        verify(assetService).releaseWithdrawal(1L, "ETH_SEPOLIA", "ETH", null,
-                order.getAmount(), order.getFee(), 99L, null);
+        verify(assetService).releaseWithdrawal(1L, asset, 99L, null);
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.CANCELLED.getCode());
         assertThat(order.getRemark()).isEqualTo("risk review rejected");
         verify(withdrawOrderMapper).updateById(order);
@@ -153,6 +175,9 @@ class WithdrawServiceImplTest {
     void shouldBroadcastEthWithdrawOrderAndPersistTxHash() {
         WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+        SupportedAsset asset = ethAsset();
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
+        when(supportedAssetService.getRequiredWithdrawAsset("ETH")).thenReturn(asset);
         when(web3Service.broadcastEthTransfer(TO_ADDRESS, order.getAmount())).thenReturn(TX_HASH);
 
         assertThat(withdrawService.broadcastWithdraw(99L)).isEqualTo(TX_HASH);
@@ -184,11 +209,12 @@ class WithdrawServiceImplTest {
         receipt.setStatus("0x1");
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
         when(web3Service.getTransactionReceipt(TX_HASH)).thenReturn(receipt);
+        SupportedAsset asset = ethAsset();
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
 
         assertThat(withdrawService.syncWithdrawStatus(99L)).isEqualTo(WithdrawStatus.CONFIRMED.getCode());
 
-        verify(assetService).confirmWithdrawal(1L, "ETH_SEPOLIA", "ETH", null,
-                order.getAmount(), order.getFee(), 99L, TX_HASH);
+        verify(assetService).confirmWithdrawal(1L, asset, 99L, TX_HASH);
         verify(withdrawOrderMapper).updateById(order);
     }
 
@@ -200,23 +226,25 @@ class WithdrawServiceImplTest {
         receipt.setStatus("0x0");
         when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
         when(web3Service.getTransactionReceipt(TX_HASH)).thenReturn(receipt);
+        SupportedAsset asset = ethAsset();
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
 
         assertThat(withdrawService.syncWithdrawStatus(99L)).isEqualTo(WithdrawStatus.FAILED.getCode());
 
-        verify(assetService).releaseWithdrawal(1L, "ETH_SEPOLIA", "ETH", null,
-                order.getAmount(), order.getFee(), 99L, TX_HASH);
+        verify(assetService).releaseWithdrawal(1L, asset, 99L, TX_HASH);
         verify(withdrawOrderMapper).updateById(order);
     }
 
     private WithdrawApplyRequest request() {
         WithdrawApplyRequest request = new WithdrawApplyRequest();
         request.setRequestId("request-001");
+        request.setAssetCode("USDC");
         request.setChain("ETH_SEPOLIA");
         request.setTokenSymbol("USDC");
-        request.setTokenAddress(TOKEN_ADDRESS);
-        request.setTokenDecimals(6);
+        request.setTokenAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        request.setTokenDecimals(18);
         request.setToAddress(TO_ADDRESS);
-        request.setAmount(new BigDecimal("10.000000000000000000"));
+        request.setAmount(new BigDecimal("10.000000"));
         request.setFee(new BigDecimal("0.100000000000000000"));
         return request;
     }
@@ -225,6 +253,7 @@ class WithdrawServiceImplTest {
         WithdrawOrder order = new WithdrawOrder();
         order.setId(99L);
         order.setUserId(1L);
+        order.setAssetId(7001L);
         order.setChain("ETH_SEPOLIA");
         order.setTokenSymbol("ETH");
         order.setTokenDecimals(18);
@@ -233,5 +262,32 @@ class WithdrawServiceImplTest {
         order.setFee(new BigDecimal("0.010000000000000000"));
         order.setStatus(status);
         return order;
+    }
+
+    private SupportedAsset ethAsset() {
+        SupportedAsset asset = new SupportedAsset();
+        asset.setId(7001L);
+        asset.setAssetCode("ETH");
+        asset.setChain("ETH_SEPOLIA");
+        asset.setSymbol("ETH");
+        asset.setDecimals(18);
+        asset.setMinWithdraw(new BigDecimal("0.001"));
+        asset.setMaxSingleWithdraw(new BigDecimal("100"));
+        asset.setPlatformWithdrawFee(new BigDecimal("0.0001"));
+        return asset;
+    }
+
+    private SupportedAsset usdcAsset() {
+        SupportedAsset asset = new SupportedAsset();
+        asset.setId(7002L);
+        asset.setAssetCode("USDC");
+        asset.setChain("ETH_SEPOLIA");
+        asset.setSymbol("USDC");
+        asset.setTokenAddress(TOKEN_ADDRESS.toLowerCase());
+        asset.setDecimals(6);
+        asset.setMinWithdraw(BigDecimal.ONE);
+        asset.setMaxSingleWithdraw(new BigDecimal("100000"));
+        asset.setPlatformWithdrawFee(BigDecimal.ONE);
+        return asset;
     }
 }
