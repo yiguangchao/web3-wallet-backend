@@ -14,6 +14,7 @@ public class AssetAccount {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private Long userId;
+    private Long assetId;
     private String chain;
     private String tokenSymbol;
     private String tokenAddress;

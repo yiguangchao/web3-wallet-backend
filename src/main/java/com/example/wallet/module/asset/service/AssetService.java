@@ -2,6 +2,7 @@ package com.example.wallet.module.asset.service;
 
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
+import com.example.wallet.module.asset.entity.SupportedAsset;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -11,18 +12,13 @@ public interface AssetService {
 
     List<AssetFlow> listFlows(Long userId);
 
-    void creditDeposit(Long userId, String chain, String tokenSymbol, String tokenAddress,
-                       BigDecimal amount, Long businessId, String txHash);
+    void creditDeposit(Long userId, SupportedAsset asset, BigDecimal amount, Long businessId, String txHash);
 
-    void reverseDeposit(Long userId, String chain, String tokenSymbol, String tokenAddress,
-                        BigDecimal amount, Long businessId, String txHash);
+    void reverseDeposit(Long userId, SupportedAsset asset, Long businessId, String txHash);
 
-    void freezeWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
-                          BigDecimal amount, BigDecimal fee, Long businessId);
+    void freezeWithdrawal(Long userId, SupportedAsset asset, BigDecimal amount, Long businessId);
 
-    void confirmWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
-                           BigDecimal amount, BigDecimal fee, Long businessId, String txHash);
+    void confirmWithdrawal(Long userId, SupportedAsset asset, Long businessId, String txHash);
 
-    void releaseWithdrawal(Long userId, String chain, String tokenSymbol, String tokenAddress,
-                           BigDecimal amount, BigDecimal fee, Long businessId, String txHash);
+    void releaseWithdrawal(Long userId, SupportedAsset asset, Long businessId, String txHash);
 }
