@@ -9,7 +9,7 @@ import com.example.wallet.infrastructure.custody.SweepBroadcastResult;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
 import com.example.wallet.infrastructure.web3.Web3Service;
-import com.example.wallet.module.deposit.config.DepositScanProperties;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.wallet.entity.CustodySweepOrder;
 import com.example.wallet.module.wallet.service.CustodySweepService;
 import java.math.BigDecimal;
@@ -33,6 +33,8 @@ class CustodySweepWorkerTest {
     private Web3Service web3Service;
     @Mock
     private RedisDistributedLock distributedLock;
+    @Mock
+    private SupportedAssetService supportedAssetService;
 
     private CustodyWalletProperties properties;
     private CustodySweepWorker worker;
@@ -44,8 +46,7 @@ class CustodySweepWorkerTest {
         properties.getSweep().setEnabled(true);
         properties.getSweep().setBatchSize(1);
         worker = new CustodySweepWorker(
-                sweepService, keyService, properties, new DepositScanProperties(),
-                web3Service, distributedLock);
+                sweepService, keyService, properties, web3Service, distributedLock, supportedAssetService);
     }
 
     @Test

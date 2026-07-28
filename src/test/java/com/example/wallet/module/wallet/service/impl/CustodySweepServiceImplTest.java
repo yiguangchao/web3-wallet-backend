@@ -9,8 +9,10 @@ import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.example.wallet.infrastructure.custody.CustodyWalletProperties;
-import com.example.wallet.module.deposit.config.DepositScanProperties;
+import com.example.wallet.module.asset.entity.SupportedAsset;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.deposit.entity.DepositOrder;
+import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
 import com.example.wallet.module.wallet.entity.CustodyDepositAddress;
 import com.example.wallet.module.wallet.entity.CustodySweepOrder;
 import com.example.wallet.module.wallet.entity.CustodySweepStatus;
@@ -31,6 +33,10 @@ class CustodySweepServiceImplTest {
     private CustodySweepOrderMapper sweepOrderMapper;
     @Mock
     private CustodyDepositAddressMapper depositAddressMapper;
+    @Mock
+    private DepositOrderMapper depositOrderMapper;
+    @Mock
+    private SupportedAssetService supportedAssetService;
 
     private CustodyWalletProperties custodyProperties;
     private CustodySweepServiceImpl service;
@@ -43,7 +49,8 @@ class CustodySweepServiceImplTest {
         custodyProperties.getSweep().setCollectionAddress(
                 "0x2222222222222222222222222222222222222222");
         service = new CustodySweepServiceImpl(
-                sweepOrderMapper, depositAddressMapper, custodyProperties, new DepositScanProperties());
+                sweepOrderMapper, depositAddressMapper, custodyProperties,
+                depositOrderMapper, supportedAssetService);
     }
 
     @Test
@@ -55,11 +62,13 @@ class CustodySweepServiceImplTest {
         address.setDerivationIndex(7L);
         when(depositAddressMapper.selectOne(any(Wrapper.class))).thenReturn(address);
         when(sweepOrderMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset());
 
         service.schedule(deposit());
 
         ArgumentCaptor<CustodySweepOrder> captor = ArgumentCaptor.forClass(CustodySweepOrder.class);
         verify(sweepOrderMapper).insert(captor.capture());
+        verify(depositOrderMapper).markSweepTaskIfPending(any(), any(), any());
         assertThat(captor.getValue())
                 .extracting(CustodySweepOrder::getDepositOrderId, CustodySweepOrder::getAddressId,
                         CustodySweepOrder::getKeyVersion, CustodySweepOrder::getDerivationIndex,
@@ -75,16 +84,43 @@ class CustodySweepServiceImplTest {
 
         verifyNoInteractions(depositAddressMapper);
         verify(sweepOrderMapper, never()).insert(any(CustodySweepOrder.class));
+        verifyNoInteractions(depositOrderMapper, supportedAssetService);
+    }
+
+    @Test
+    void shouldMarkSweepNotRequiredWhenAssetSweepIsDisabled() {
+        SupportedAsset asset = asset();
+        asset.setSweepEnabled(false);
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset);
+
+        service.schedule(deposit());
+
+        verify(depositOrderMapper).markSweepTaskIfPending(
+                org.mockito.Mockito.eq(10L), org.mockito.Mockito.eq(2), any());
+        verify(sweepOrderMapper, never()).insert(any(CustodySweepOrder.class));
     }
 
     private DepositOrder deposit() {
         DepositOrder order = new DepositOrder();
         order.setId(10L);
         order.setUserId(1L);
+        order.setAssetId(7001L);
         order.setChain("ETH_SEPOLIA");
         order.setTokenSymbol("ETH");
         order.setToAddress("0x1111111111111111111111111111111111111111");
         order.setAmount(new BigDecimal("1.25"));
+        order.setStatus(1);
         return order;
+    }
+
+    private SupportedAsset asset() {
+        SupportedAsset asset = new SupportedAsset();
+        asset.setId(7001L);
+        asset.setChain("ETH_SEPOLIA");
+        asset.setSymbol("ETH");
+        asset.setDecimals(18);
+        asset.setStatus(1);
+        asset.setSweepEnabled(true);
+        return asset;
     }
 }

@@ -19,6 +19,7 @@ import com.example.wallet.module.user.mapper.SysUserMapper;
 import com.example.wallet.module.wallet.dto.AllocateDepositAddressRequest;
 import com.example.wallet.module.wallet.dto.DepositAddressResponse;
 import com.example.wallet.module.wallet.entity.CustodyDepositAddress;
+import com.example.wallet.module.wallet.entity.CustodyDepositAddressStatus;
 import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
 import com.example.wallet.module.wallet.mapper.CustodyHdSequenceMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -117,6 +118,24 @@ class WalletServiceImplTest {
                 .isInstanceOf(BizException.class)
                 .hasMessage("custody wallet is disabled");
         verify(userMapper, never()).selectByIdForUpdate(any());
+    }
+
+    @Test
+    void shouldNeverReactivateRetiredAddress() {
+        CustodyDepositAddress retired = new CustodyDepositAddress();
+        retired.setId(2001L);
+        retired.setUserId(1001L);
+        retired.setChain("ETH_SEPOLIA");
+        retired.setAddress(DERIVED_ADDRESS);
+        retired.setStatus(CustodyDepositAddressStatus.RETIRED.getCode());
+        when(depositAddressMapper.selectById(2001L)).thenReturn(retired);
+        when(depositAddressMapper.selectByIdForUpdate(2001L)).thenReturn(retired);
+
+        assertThatThrownBy(() -> walletService.updateDepositAddressStatus(
+                2001L, CustodyDepositAddressStatus.ACTIVE))
+                .isInstanceOf(BizException.class)
+                .hasMessage("retired custody address is terminal");
+        verify(depositAddressMapper, never()).updateStatusIfCurrent(any(), any(), any(), any(), any());
     }
 
     private SysUser activeUser() {

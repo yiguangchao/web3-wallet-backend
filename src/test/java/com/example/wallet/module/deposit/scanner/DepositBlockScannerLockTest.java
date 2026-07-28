@@ -7,6 +7,8 @@ import static org.mockito.Mockito.when;
 
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
+import com.example.wallet.infrastructure.web3.Web3Properties;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
 import java.time.Duration;
@@ -29,6 +31,8 @@ class DepositBlockScannerLockTest {
     private DepositScanPersistenceService persistenceService;
     @Mock
     private RedisDistributedLock distributedLock;
+    @Mock
+    private SupportedAssetService supportedAssetService;
 
     private DepositBlockScanner scanner;
     private DepositScanProperties properties;
@@ -37,8 +41,11 @@ class DepositBlockScannerLockTest {
     void setUp() {
         properties = new DepositScanProperties();
         properties.getScan().setEnabled(true);
+        Web3Properties web3Properties = new Web3Properties();
+        web3Properties.setChainId(11155111L);
         scanner = new DepositBlockScanner(
-                web3j, depositAddressMapper, properties, persistenceService, distributedLock);
+                web3j, depositAddressMapper, properties, persistenceService, distributedLock,
+                supportedAssetService, web3Properties);
     }
 
     @Test

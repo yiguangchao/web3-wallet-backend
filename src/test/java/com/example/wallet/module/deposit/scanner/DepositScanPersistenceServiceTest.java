@@ -7,11 +7,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.wallet.module.asset.service.AssetService;
+import com.example.wallet.module.asset.service.SupportedAssetService;
+import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.chain.mapper.ChainBlockScanRecordMapper;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
-import com.example.wallet.module.wallet.service.CustodySweepService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class DepositScanPersistenceServiceTest {
     @Mock
     private AssetService assetService;
     @Mock
-    private CustodySweepService custodySweepService;
+    private SupportedAssetService supportedAssetService;
 
     private DepositScanPersistenceService service;
 
@@ -38,7 +39,7 @@ class DepositScanPersistenceServiceTest {
         DepositScanProperties properties = new DepositScanProperties();
         properties.setConfirmBlocks(12);
         service = new DepositScanPersistenceService(
-                scanRecordMapper, depositOrderMapper, assetService, properties, custodySweepService);
+                scanRecordMapper, depositOrderMapper, assetService, supportedAssetService, properties);
     }
 
     @Test
@@ -46,12 +47,11 @@ class DepositScanPersistenceServiceTest {
         DepositOrder order = pendingOrder();
         when(depositOrderMapper.selectById(10L)).thenReturn(order);
         when(depositOrderMapper.markConfirmedIfPending(any(), any(), any())).thenReturn(1);
+        when(supportedAssetService.getRequiredDepositAsset(7001L)).thenReturn(asset());
 
         service.updateConfirmation(10L, 12, true);
 
-        verify(assetService).creditDeposit(1L, "ETH_SEPOLIA", "ETH", null,
-                new BigDecimal("1.25"), 10L, "0xtx");
-        verify(custodySweepService).schedule(order);
+        verify(assetService).creditDeposit(1L, asset(), new BigDecimal("1.25"), 10L, "0xtx");
     }
 
     @Test
@@ -61,8 +61,7 @@ class DepositScanPersistenceServiceTest {
 
         service.updateConfirmation(10L, 12, false);
 
-        verify(assetService, never()).creditDeposit(1L, "ETH_SEPOLIA", "ETH", null,
-                new BigDecimal("1.25"), 10L, "0xtx");
+        verify(assetService, never()).creditDeposit(any(), any(), any(), any(), any());
         assertThat(order.getStatus()).isEqualTo(DepositScanPersistenceService.STATUS_REORGED);
     }
 
@@ -71,11 +70,11 @@ class DepositScanPersistenceServiceTest {
         DepositOrder order = pendingOrder();
         order.setStatus(DepositScanPersistenceService.STATUS_CONFIRMED);
         when(depositOrderMapper.selectById(10L)).thenReturn(order);
+        when(supportedAssetService.getRequiredById(7001L)).thenReturn(asset());
 
         service.markConfirmedOrderReorged(10L);
 
-        verify(assetService).reverseDeposit(1L, "ETH_SEPOLIA", "ETH", null,
-                new BigDecimal("1.25"), 10L, "0xtx");
+        verify(assetService).reverseDeposit(1L, asset(), 10L, "0xtx");
         assertThat(order.getStatus()).isEqualTo(DepositScanPersistenceService.STATUS_REORGED);
     }
 
@@ -83,11 +82,21 @@ class DepositScanPersistenceServiceTest {
         DepositOrder order = new DepositOrder();
         order.setId(10L);
         order.setUserId(1L);
+        order.setAssetId(7001L);
         order.setChain("ETH_SEPOLIA");
         order.setTokenSymbol("ETH");
         order.setAmount(new BigDecimal("1.25"));
         order.setTxHash("0xtx");
         order.setStatus(DepositScanPersistenceService.STATUS_PENDING);
         return order;
+    }
+
+    private SupportedAsset asset() {
+        SupportedAsset asset = new SupportedAsset();
+        asset.setId(7001L);
+        asset.setChain("ETH_SEPOLIA");
+        asset.setSymbol("ETH");
+        asset.setConfirmationBlocks(12);
+        return asset;
     }
 }
