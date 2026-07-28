@@ -80,11 +80,14 @@ jobs:
             --host 0.0.0.0 --chain-id 31337 --block-time 1
           docker run --rm \
             --entrypoint forge \
-            --volume "${{ github.workspace }}:/workspace" \
+            --volume "${{ github.workspace }}:/workspace:ro" \
             --volume "/tmp/forge-out:/forge-out" \
             --workdir /workspace \
             ghcr.io/foundry-rs/foundry:latest \
-            build --root /workspace/src/test/evm --out /forge-out
+            build \
+            --root /workspace/src/test/evm \
+            --out /forge-out \
+            --cache-path /forge-out/cache
           test -r "$EVM_ERC20_ARTIFACT"
           for attempt in {1..30}; do
             if curl --fail --silent --show-error \
