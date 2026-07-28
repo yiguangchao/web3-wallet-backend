@@ -14,6 +14,7 @@ import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
 import com.example.wallet.module.chain.entity.ChainScannedBlock;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
+import com.example.wallet.module.monitoring.WalletOperationalMetrics;
 import java.math.BigInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class DepositBlockScannerReorgTest {
     @Mock private DepositScanPersistenceService persistenceService;
     @Mock private RedisDistributedLock lock;
     @Mock private SupportedAssetService assetService;
+    @Mock private WalletOperationalMetrics operationalMetrics;
 
     private DepositBlockScanner scanner;
 
@@ -43,7 +45,8 @@ class DepositBlockScannerReorgTest {
         Web3Properties web3Properties = new Web3Properties();
         web3Properties.setChainId(11155111L);
         scanner = new DepositBlockScanner(
-                web3j, addressMapper, properties, persistenceService, lock, assetService, web3Properties);
+                web3j, addressMapper, properties, persistenceService, lock, assetService,
+                web3Properties, operationalMetrics);
     }
 
     @Test

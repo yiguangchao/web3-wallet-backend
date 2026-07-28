@@ -13,6 +13,8 @@ import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.example.wallet.common.exception.BizException;
+import com.example.wallet.common.api.AuditActor;
+import com.example.wallet.common.api.AuditActorProvider;
 import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.asset.service.SupportedAssetService;
@@ -27,6 +29,7 @@ import com.example.wallet.module.withdraw.service.PreparedChainTransaction;
 import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import com.example.wallet.module.withdraw.service.WithdrawTransactionPreparationService;
 import com.example.wallet.module.withdraw.service.WithdrawChainLifecycleService;
+import com.example.wallet.module.risk.service.RiskControlService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,6 +59,10 @@ class WithdrawServiceImplTest {
     private WithdrawTransactionPreparationService transactionPreparationService;
     @Mock
     private WithdrawChainLifecycleService chainLifecycleService;
+    @Mock
+    private RiskControlService riskControlService;
+    @Mock
+    private AuditActorProvider actorProvider;
 
     private WithdrawServiceImpl withdrawService;
 
@@ -63,10 +70,17 @@ class WithdrawServiceImplTest {
     void setUp() {
         withdrawService = new WithdrawServiceImpl(
                 withdrawOrderMapper, web3Service, assetService, supportedAssetService,
-                withdrawAuditService, transactionPreparationService, chainLifecycleService);
+                withdrawAuditService, transactionPreparationService, chainLifecycleService,
+                riskControlService, actorProvider);
         lenient().when(withdrawOrderMapper.insert(any(WithdrawOrder.class))).thenReturn(1);
         lenient().when(withdrawOrderMapper.transitionStatus(
                 any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        lenient().when(withdrawOrderMapper.assignReviewerIfAbsent(any(), any(), any(), any()))
+                .thenReturn(1);
+        lenient().when(withdrawOrderMapper.assignOperatorIfSeparated(any(), any(), any(), any()))
+                .thenReturn(1);
+        lenient().when(actorProvider.current())
+                .thenReturn(new AuditActor(20L, "operator", "ADMIN", "127.0.0.1"));
     }
 
     @Test
@@ -96,6 +110,8 @@ class WithdrawServiceImplTest {
         assertThat(order.getStatus()).isEqualTo(WithdrawStatus.PENDING_REVIEW.getCode());
         verify(assetService).freezeWithdrawal(
                 1L, asset, new BigDecimal("10.000000"), 99L);
+        verify(riskControlService).validateWithdrawal(
+                1L, asset, TO_ADDRESS, new BigDecimal("10.000000"));
     }
 
     @Test
@@ -249,6 +265,19 @@ class WithdrawServiceImplTest {
     }
 
     @Test
+    void shouldRejectBroadcastWhenReviewerAndOperatorAreTheSameUser() {
+        WithdrawOrder order = ethOrder(WithdrawStatus.APPROVED.getCode());
+        order.setReviewerUserId(20L);
+        when(withdrawOrderMapper.selectByIdForUpdate(99L)).thenReturn(order);
+
+        assertThatThrownBy(() -> withdrawService.broadcastWithdraw(99L))
+                .isInstanceOf(BizException.class)
+                .hasMessage("withdraw reviewer and operator must be different users");
+
+        verify(transactionPreparationService, never()).prepare(any(), any());
+    }
+
+    @Test
     void shouldReturnExistingTxHashWhenOrderAlreadyBroadcasted() {
         WithdrawOrder order = ethOrder(WithdrawStatus.BROADCASTED.getCode());
         order.setTxHash(TX_HASH);
@@ -333,6 +362,9 @@ class WithdrawServiceImplTest {
         order.setAmount(new BigDecimal("1.000000000000000000"));
         order.setFee(new BigDecimal("0.010000000000000000"));
         order.setStatus(status);
+        if (!Integer.valueOf(WithdrawStatus.PENDING_REVIEW.getCode()).equals(status)) {
+            order.setReviewerUserId(10L);
+        }
         return order;
     }
 

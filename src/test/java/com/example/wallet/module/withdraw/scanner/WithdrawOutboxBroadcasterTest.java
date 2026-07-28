@@ -11,6 +11,7 @@ import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.withdraw.config.WithdrawBroadcastProperties;
 import com.example.wallet.module.withdraw.service.OutboxBroadcastTask;
 import com.example.wallet.module.withdraw.service.WithdrawOutboxService;
+import com.example.wallet.module.risk.service.RiskControlService;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,8 @@ class WithdrawOutboxBroadcasterTest {
     private WithdrawOutboxService outboxService;
     @Mock
     private Web3Service web3Service;
+    @Mock
+    private RiskControlService riskControlService;
 
     private WithdrawOutboxBroadcaster broadcaster;
 
@@ -36,7 +39,8 @@ class WithdrawOutboxBroadcasterTest {
         WithdrawBroadcastProperties properties = new WithdrawBroadcastProperties();
         properties.setEnabled(true);
         properties.setBatchSize(1);
-        broadcaster = new WithdrawOutboxBroadcaster(outboxService, web3Service, properties);
+        broadcaster = new WithdrawOutboxBroadcaster(
+                outboxService, web3Service, properties, riskControlService);
     }
 
     @Test

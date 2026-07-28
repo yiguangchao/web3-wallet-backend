@@ -36,7 +36,7 @@ class FlywayMySqlMigrationTest {
 
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("13");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("14");
         assertThat(count("SELECT COUNT(*) FROM supported_asset")).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM information_schema.tables "
                 + "WHERE table_schema = DATABASE() AND table_name = 'asset_freeze_detail'"))
@@ -45,6 +45,12 @@ class FlywayMySqlMigrationTest {
                 + "WHERE table_schema = DATABASE() AND table_name IN "
                 + "('chain_scanned_block','asset_risk_freeze_detail')"))
                 .isEqualTo(2);
+        assertThat(count("SELECT COUNT(*) FROM information_schema.tables "
+                + "WHERE table_schema = DATABASE() AND table_name IN "
+                + "('withdraw_risk_policy','withdraw_address_whitelist','user_risk_control',"
+                + "'platform_operation_switch','reconciliation_run','reconciliation_difference')"))
+                .isEqualTo(6);
+        assertThat(count("SELECT COUNT(*) FROM withdraw_risk_policy WHERE status = 1")).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM information_schema.columns "
                 + "WHERE table_schema = DATABASE() AND column_name = 'asset_id' "
                 + "AND table_name IN ('asset_account','asset_flow','deposit_order',"
@@ -64,7 +70,7 @@ class FlywayMySqlMigrationTest {
         Flyway latest = flyway(null);
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("13");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("14");
         assertThat(count("SELECT COUNT(*) FROM asset_account WHERE asset_id = 7001")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM wallet_address WHERE verified_at IS NULL")).isEqualTo(1);
     }
