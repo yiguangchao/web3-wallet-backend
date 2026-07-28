@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
@@ -49,6 +50,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -97,6 +99,8 @@ class WalletBusinessE2EIntegrationTest {
 
     @DynamicPropertySource
     static void testProperties(DynamicPropertyRegistry registry) {
+        // PER_CLASS creates the Spring test instance before Testcontainers' beforeAll callback.
+        Startables.deepStart(Stream.of(MYSQL, REDIS)).join();
         String rpcUrl = System.getenv().getOrDefault("EVM_RPC_URL", "http://127.0.0.1:8545");
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
         registry.add("spring.datasource.username", MYSQL::getUsername);

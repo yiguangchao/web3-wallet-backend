@@ -36,6 +36,14 @@ GitHub Actions (ubuntu-latest, JDK 17)
 
 CI 运行器提供 Docker。MySQL/Redis 服务容器先通过健康检查，Testcontainers 再为测试创建隔离实例；Anvil 用于真实验证 ETH 转账、ERC-20 `Transfer`、交易 receipt 和确认数。
 
+`WalletBusinessE2EIntegrationTest` 进一步把真实链与 Spring 业务服务、MySQL 账本和 Redis 串联，覆盖：
+
+- ETH/ERC-20 充值扫描、确认、重复扫描幂等；
+- ETH/ERC-20 提现审核、EIP-1559 签名、Outbox 广播、Receipt 确认；
+- 并发提现、重复广播、过期 Outbox 恢复；
+- 对账异常自动冻结和暂停提现；
+- Anvil snapshot/revert 触发的已入账充值重组风险冻结。
+
 ## CI 禁止跳过
 
 本地保留 Docker 不可用时跳过的行为，但 CI 有两道强制检查：
@@ -61,4 +69,3 @@ Tests skipped: ...
 ```
 
 构建失败或出现 skipped test 时，`target/surefire-reports` 会作为 `surefire-reports` Artifact 上传并保留 14 天。可在对应 GitHub Actions run 的 Artifacts 区域下载 XML 与失败详情。
-
