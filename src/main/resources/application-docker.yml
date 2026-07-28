@@ -1,0 +1,15 @@
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://mysql:3306/web3_wallet?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+
+web3:
+  rpc-url: ${WEB3_RPC_URL:http://anvil:8545}
+  chain-id: ${WEB3_CHAIN_ID:31337}
+

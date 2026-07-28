@@ -1,0 +1,56 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${MYSQL_URL}
+    username: ${MYSQL_USERNAME}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: ${MYSQL_POOL_MAX_SIZE:20}
+      minimum-idle: ${MYSQL_POOL_MIN_IDLE:5}
+      connection-timeout: ${MYSQL_CONNECTION_TIMEOUT:30000}
+  flyway:
+    clean-disabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+
+jwt:
+  secret: ${JWT_SECRET}
+
+web3:
+  rpc-url: ${WEB3_RPC_URL}
+  chain-id: ${WEB3_CHAIN_ID}
+
+wallet:
+  signer:
+    hot-wallet-address: ${WALLET_SIGNER_HOT_WALLET_ADDRESS}
+    key-id: ${WALLET_SIGNER_KEY_ID}
+    remote-url: ${WALLET_SIGNER_REMOTE_URL}
+  scan:
+    enabled: ${WALLET_SCAN_ENABLED:false}
+  custody:
+    enabled: ${WALLET_CUSTODY_ENABLED:false}
+    sweep:
+      enabled: ${WALLET_CUSTODY_SWEEP_ENABLED:false}
+  withdraw-broadcast:
+    enabled: ${WALLET_WITHDRAW_BROADCAST_ENABLED:false}
+  withdraw-chain:
+    enabled: ${WALLET_WITHDRAW_RECEIPT_ENABLED:false}
+  reconciliation:
+    enabled: ${WALLET_RECONCILIATION_ENABLED:false}
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+

@@ -75,12 +75,23 @@ RPC 客户端统一应用连接、读写和总调用超时，并对网络异常�
 4. 启动应用：
 
 ```bash
-mvn spring-boot:run
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
+
+完整容器环境可直接启动应用、MySQL 8、Redis 7 和 Anvil：
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+Compose 仅用于本地开发和验收，内置 Anvil 测试私钥不得用于生产。环境分层、生产变量和升级步骤见 [`docs/deployment.md`](docs/deployment.md)，上线前逐项执行 [`docs/production-checklist.md`](docs/production-checklist.md)。
+
+Phase 8 的完成项、遗留项、状态机、测试结果和生产判断见 [`docs/phase-8-qc-report.md`](docs/phase-8-qc-report.md)。
 
 ## MySQL 初始化
 
-Docker Compose 只负责创建 `web3_wallet` 数据库。应用启动时 Flyway 会自动执行 `src/main/resources/db/migration` 中尚未执行的版本迁移，并通过 `flyway_schema_history` 记录数据库版本。已有非空数据库会自动建立版本 `0` 基线，再执行后续迁移。
+Docker Compose 会创建 `web3_wallet` 数据库并启动应用。应用启动时 Flyway 会自动执行 `src/main/resources/db/migration` 中尚未执行的版本迁移，并通过 `flyway_schema_history` 记录数据库版本。已有非空数据库会自动建立版本 `0` 基线，再执行后续迁移。
 
 默认连接配置：
 
@@ -102,6 +113,8 @@ docker compose up -d redis
 
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+
+Swagger 提供 JWT Bearer 授权入口。`prod` Profile 默认关闭 Swagger，可通过受控环境变量临时开启，但不应直接暴露到公网。
 
 ## 当前功能
 
@@ -358,12 +371,11 @@ Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需
 - ERC-20 Gas 自动补给与风控
 - 提现与充值归集共享热钱包时的统一 Nonce 域
 - 卡单加速交易生成与人工风险冻结解冻流程
-- 后端应用 Docker 镜像与完整部署编排
+- Kubernetes/云厂商部署模板、SBOM 和镜像签名
 
+## 交付状态
 
-## 说明
-
-后端应用暂未放入 Docker 镜像。后续可新增 `Dockerfile` 并在 `docker-compose.yml` 中增加 `app` 服务。
+应用已提供非 root Docker 镜像、MySQL/Redis/Anvil 完整 Compose、dev/docker/prod 多环境配置、健康检查、CI 全量集成测试和受控生产上线清单。生产仍必须接入外部密钥托管、监控告警平台、备份恢复与值班流程。
 
 Phase 1：基础账户与托管充值地址分配，已完成
 Phase 2：资产账户、流水、仅 dev/test 可用的模拟充值，已完成
@@ -372,7 +384,7 @@ Phase 4：提现冻结、审核、签名、广播，已完成
 Phase 5：Nonce、签名隔离、链上交易快照与 Outbox 广播恢复，已完成
 Phase 6：EIP-1559、Gas 风控、Receipt 确认与充值重组风险冻结，已完成
 Phase 7：三层对账、提现风控、限流与运营监控，已完成
-Phase 8：Docker 镜像、部署脚本、告警规则与仪表盘，待开发
+Phase 8：端到端测试、Docker 部署、多环境配置、健康检查与最终 QC，已完成
 
 ### 模拟充值安全隔离
 

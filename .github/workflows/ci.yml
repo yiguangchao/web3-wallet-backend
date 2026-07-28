@@ -160,6 +160,13 @@ jobs:
           --reports target/surefire-reports
           --require com.example.wallet.infrastructure.web3.AnvilBlockchainIntegrationTest#shouldTransferEthAndReachConfirmations
           --require com.example.wallet.infrastructure.web3.AnvilBlockchainIntegrationTest#shouldDeployAndTransferErc20
+          --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldCreditEthDepositExactlyOnce
+          --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldCreditErc20DepositExactlyOnce
+          --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldCompleteEthWithdrawalEndToEnd
+          --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldCompleteErc20WithdrawalEndToEnd
+          --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldSerializeConcurrentWithdrawalsAndRecoverStaleOutbox
+          --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldPauseWithdrawalsWhenReconciliationFindsAnomaly
+          --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldFreezeConfirmedDepositRemovedByChainReorganization
 
       - name: Test Results
         id: report

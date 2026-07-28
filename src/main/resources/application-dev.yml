@@ -1,0 +1,30 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+logging:
+  level:
+    com.example.wallet: DEBUG
+
+wallet:
+  scan:
+    enabled: false
+  custody:
+    enabled: false
+    sweep:
+      enabled: false
+  reconciliation:
+    enabled: false
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
