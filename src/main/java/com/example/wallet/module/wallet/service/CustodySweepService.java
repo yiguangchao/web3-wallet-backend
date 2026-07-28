@@ -10,6 +10,10 @@ public interface CustodySweepService {
 
     void schedule(DepositOrder depositOrder);
 
+    List<Long> listPendingDepositIds(int limit);
+
+    void schedulePendingDeposit(Long depositOrderId);
+
     Optional<CustodySweepOrder> claimNext();
 
     void recoverStaleProcessing();

@@ -26,6 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WalletServiceImpl implements WalletService {
 
+    private static final String PLATFORM_CUSTODY = "PLATFORM_CUSTODY";
+    private static final String DEPOSIT_ADDRESS = "DEPOSIT";
+
     private final CustodyDepositAddressMapper depositAddressMapper;
     private final CustodyHdSequenceMapper sequenceMapper;
     private final SysUserMapper userMapper;
@@ -79,6 +82,8 @@ public class WalletServiceImpl implements WalletService {
         address.setUserId(userId);
         address.setChain(chain);
         address.setAddress(derived.address().toLowerCase(Locale.ROOT));
+        address.setCustodyType(PLATFORM_CUSTODY);
+        address.setAddressType(DEPOSIT_ADDRESS);
         address.setKeyVersion(derived.keyVersion());
         address.setDerivationIndex(derived.derivationIndex());
         address.setDerivationPath(derived.derivationPath());
@@ -86,7 +91,9 @@ public class WalletServiceImpl implements WalletService {
         address.setAssignedAt(now);
         address.setCreatedAt(now);
         address.setUpdatedAt(now);
-        depositAddressMapper.insert(address);
+        if (depositAddressMapper.insert(address) != 1) {
+            throw new BizException("custody deposit address creation failed");
+        }
         if (sequenceMapper.advance(chain, keyVersion, index) != 1) {
             throw new BizException("custody derivation sequence update failed");
         }
@@ -116,6 +123,14 @@ public class WalletServiceImpl implements WalletService {
         if (address == null) {
             throw new BizException("custody deposit address not found");
         }
+        CustodyDepositAddressStatus currentStatus = CustodyDepositAddressStatus.fromCode(address.getStatus());
+        if (currentStatus == CustodyDepositAddressStatus.RETIRED
+                && status != CustodyDepositAddressStatus.RETIRED) {
+            throw new BizException("retired custody address is terminal");
+        }
+        if (currentStatus == status) {
+            return toResponse(address);
+        }
         if (status == CustodyDepositAddressStatus.ACTIVE) {
             Long activeCount = depositAddressMapper.selectCount(
                     new LambdaQueryWrapper<CustodyDepositAddress>()
@@ -127,10 +142,15 @@ public class WalletServiceImpl implements WalletService {
                 throw new BizException("user already has an active deposit address for this chain");
             }
         }
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime disabledAt = status == CustodyDepositAddressStatus.ACTIVE ? null : now;
+        if (depositAddressMapper.updateStatusIfCurrent(
+                addressId, currentStatus.getCode(), status.getCode(), disabledAt, now) != 1) {
+            throw new BizException("custody address status changed concurrently");
+        }
         address.setStatus(status.getCode());
-        address.setDisabledAt(status == CustodyDepositAddressStatus.ACTIVE ? null : LocalDateTime.now());
-        address.setUpdatedAt(LocalDateTime.now());
-        depositAddressMapper.updateById(address);
+        address.setDisabledAt(disabledAt);
+        address.setUpdatedAt(now);
         return toResponse(address);
     }
 

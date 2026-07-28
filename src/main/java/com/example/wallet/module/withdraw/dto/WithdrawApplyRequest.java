@@ -2,12 +2,11 @@ package com.example.wallet.module.withdraw.dto;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 @Data
@@ -17,15 +16,24 @@ public class WithdrawApplyRequest {
     @Size(max = 64)
     private String requestId;
 
+    @NotBlank
+    @Size(max = 64)
+    private String assetCode;
+
+    @Deprecated
+    @Schema(description = "Deprecated and ignored; resolved from assetCode by the server", deprecated = true)
     private String chain = "ETH_SEPOLIA";
 
-    @NotBlank
+    @Deprecated
+    @Schema(description = "Deprecated and ignored; resolved from assetCode by the server", deprecated = true)
     private String tokenSymbol;
 
+    @Deprecated
+    @Schema(description = "Deprecated and ignored; resolved from assetCode by the server", deprecated = true)
     private String tokenAddress;
 
-    @Min(0)
-    @Max(36)
+    @Deprecated
+    @Schema(description = "Deprecated and ignored; resolved from assetCode by the server", deprecated = true)
     private Integer tokenDecimals = 18;
 
     @NotBlank
@@ -36,8 +44,7 @@ public class WithdrawApplyRequest {
     @Digits(integer = 18, fraction = 18)
     private BigDecimal amount;
 
-    @NotNull
-    @DecimalMin(value = "0", inclusive = true)
-    @Digits(integer = 18, fraction = 18)
+    @Deprecated
+    @Schema(description = "Deprecated and ignored; the platform fee comes from assetCode", deprecated = true)
     private BigDecimal fee = BigDecimal.ZERO;
 }

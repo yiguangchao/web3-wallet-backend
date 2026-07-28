@@ -4,9 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.infrastructure.custody.CustodyWalletProperties;
-import com.example.wallet.module.deposit.config.DepositScanProperties;
-import com.example.wallet.module.deposit.config.DepositScanProperties.Token;
+import com.example.wallet.module.asset.entity.SupportedAsset;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.deposit.entity.DepositOrder;
+import com.example.wallet.module.deposit.mapper.DepositOrderMapper;
 import com.example.wallet.module.wallet.entity.CustodyDepositAddress;
 import com.example.wallet.module.wallet.entity.CustodySweepOrder;
 import com.example.wallet.module.wallet.entity.CustodySweepStatus;
@@ -22,29 +23,46 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.dao.DuplicateKeyException;
 
 @Service
 public class CustodySweepServiceImpl implements CustodySweepService {
 
+    private static final int DEPOSIT_CONFIRMED = 1;
+    private static final int SWEEP_TASK_CREATED = 1;
+    private static final int SWEEP_TASK_NOT_REQUIRED = 2;
+
     private final CustodySweepOrderMapper sweepOrderMapper;
     private final CustodyDepositAddressMapper depositAddressMapper;
     private final CustodyWalletProperties custodyProperties;
-    private final DepositScanProperties scanProperties;
+    private final DepositOrderMapper depositOrderMapper;
+    private final SupportedAssetService supportedAssetService;
 
     public CustodySweepServiceImpl(CustodySweepOrderMapper sweepOrderMapper,
                                    CustodyDepositAddressMapper depositAddressMapper,
                                    CustodyWalletProperties custodyProperties,
-                                   DepositScanProperties scanProperties) {
+                                   DepositOrderMapper depositOrderMapper,
+                                   SupportedAssetService supportedAssetService) {
         this.sweepOrderMapper = sweepOrderMapper;
         this.depositAddressMapper = depositAddressMapper;
         this.custodyProperties = custodyProperties;
-        this.scanProperties = scanProperties;
+        this.depositOrderMapper = depositOrderMapper;
+        this.supportedAssetService = supportedAssetService;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void schedule(DepositOrder depositOrder) {
         if (!custodyProperties.isEnabled() || !custodyProperties.getSweep().isEnabled()) {
+            return;
+        }
+        if (!Integer.valueOf(DEPOSIT_CONFIRMED).equals(depositOrder.getStatus())) {
+            throw new BizException("only confirmed deposits can be scheduled for sweep");
+        }
+        SupportedAsset asset = supportedAssetService.getRequiredById(depositOrder.getAssetId());
+        if (!Integer.valueOf(1).equals(asset.getStatus()) || !Boolean.TRUE.equals(asset.getSweepEnabled())) {
+            depositOrderMapper.markSweepTaskIfPending(
+                    depositOrder.getId(), SWEEP_TASK_NOT_REQUIRED, LocalDateTime.now());
             return;
         }
         String collectionAddress = custodyProperties.getSweep().getCollectionAddress();
@@ -54,13 +72,17 @@ public class CustodySweepServiceImpl implements CustodySweepService {
         CustodyDepositAddress address = depositAddressMapper.selectOne(
                 new LambdaQueryWrapper<CustodyDepositAddress>()
                         .eq(CustodyDepositAddress::getChain, depositOrder.getChain())
-                        .eq(CustodyDepositAddress::getAddress, depositOrder.getToAddress().toLowerCase(Locale.ROOT)));
+                        .eq(CustodyDepositAddress::getAddress, depositOrder.getToAddress().toLowerCase(Locale.ROOT))
+                        .eq(CustodyDepositAddress::getCustodyType, "PLATFORM_CUSTODY")
+                        .eq(CustodyDepositAddress::getAddressType, "DEPOSIT"));
         if (address == null) {
             throw new BizException("confirmed deposit does not belong to a custody address");
         }
         boolean exists = sweepOrderMapper.selectCount(new LambdaQueryWrapper<CustodySweepOrder>()
                 .eq(CustodySweepOrder::getDepositOrderId, depositOrder.getId())) > 0;
         if (exists) {
+            depositOrderMapper.markSweepTaskIfPending(
+                    depositOrder.getId(), SWEEP_TASK_CREATED, LocalDateTime.now());
             return;
         }
 
@@ -69,10 +91,11 @@ public class CustodySweepServiceImpl implements CustodySweepService {
         order.setDepositOrderId(depositOrder.getId());
         order.setAddressId(address.getId());
         order.setUserId(depositOrder.getUserId());
-        order.setChain(depositOrder.getChain());
-        order.setTokenSymbol(depositOrder.getTokenSymbol());
-        order.setTokenAddress(normalizeNullable(depositOrder.getTokenAddress()));
-        order.setTokenDecimals(resolveDecimals(depositOrder.getTokenAddress()));
+        order.setAssetId(asset.getId());
+        order.setChain(asset.getChain());
+        order.setTokenSymbol(asset.getSymbol());
+        order.setTokenAddress(asset.getTokenAddress());
+        order.setTokenDecimals(asset.getDecimals());
         order.setFromAddress(address.getAddress());
         order.setToAddress(collectionAddress.toLowerCase(Locale.ROOT));
         order.setDerivationIndex(address.getDerivationIndex());
@@ -82,25 +105,36 @@ public class CustodySweepServiceImpl implements CustodySweepService {
         order.setAttemptCount(0);
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
-        sweepOrderMapper.insert(order);
+        try {
+            sweepOrderMapper.insert(order);
+        } catch (DuplicateKeyException ignored) {
+            // A concurrent compensation pass already created the idempotent task.
+        }
+        depositOrderMapper.markSweepTaskIfPending(
+                depositOrder.getId(), SWEEP_TASK_CREATED, LocalDateTime.now());
+    }
+
+    @Override
+    public List<Long> listPendingDepositIds(int limit) {
+        return depositOrderMapper.selectPendingSweepDepositIds(Math.max(1, limit));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void schedulePendingDeposit(Long depositOrderId) {
+        DepositOrder depositOrder = depositOrderMapper.selectById(depositOrderId);
+        if (depositOrder == null || !Integer.valueOf(DEPOSIT_CONFIRMED).equals(depositOrder.getStatus())) {
+            return;
+        }
+        schedule(depositOrder);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Optional<CustodySweepOrder> claimNext() {
         LocalDateTime now = LocalDateTime.now();
-        CustodySweepOrder order = sweepOrderMapper.selectOne(
-                new LambdaQueryWrapper<CustodySweepOrder>()
-                        .and(wrapper -> wrapper
-                                .eq(CustodySweepOrder::getStatus, CustodySweepStatus.PENDING.getCode())
-                                .or(retry -> retry
-                                        .eq(CustodySweepOrder::getStatus, CustodySweepStatus.FAILED.getCode())
-                                        .lt(CustodySweepOrder::getAttemptCount,
-                                                custodyProperties.getSweep().getMaxAttempts())
-                                        .and(time -> time.isNull(CustodySweepOrder::getNextRetryAt)
-                                                .or().le(CustodySweepOrder::getNextRetryAt, now))))
-                        .orderByAsc(CustodySweepOrder::getCreatedAt)
-                        .last("LIMIT 1 FOR UPDATE"));
+        CustodySweepOrder order = sweepOrderMapper.selectNextEligibleForUpdate(
+                now, custodyProperties.getSweep().getMaxAttempts());
         if (order == null) {
             return Optional.empty();
         }
@@ -211,22 +245,6 @@ public class CustodySweepServiceImpl implements CustodySweepService {
             throw new BizException("custody sweep order not found");
         }
         return order;
-    }
-
-    private int resolveDecimals(String tokenAddress) {
-        if (!StringUtils.hasText(tokenAddress)) {
-            return 18;
-        }
-        return scanProperties.getScan().getTokens().stream()
-                .filter(token -> token.getAddress() != null
-                        && token.getAddress().equalsIgnoreCase(tokenAddress))
-                .map(Token::getDecimals)
-                .findFirst()
-                .orElseThrow(() -> new BizException("token decimals are not configured for custody sweep"));
-    }
-
-    private String normalizeNullable(String address) {
-        return StringUtils.hasText(address) ? address.toLowerCase(Locale.ROOT) : null;
     }
 
     private boolean validAddress(String address) {
