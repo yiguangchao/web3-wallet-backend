@@ -42,7 +42,7 @@ jobs:
       CI: true
       EVM_RPC_URL: http://127.0.0.1:8545
       EVM_CHAIN_ID: 31337
-      EVM_ERC20_ARTIFACT: ${{ runner.temp }}/forge-out/TestToken.sol/TestToken.json
+      EVM_ERC20_ARTIFACT: /tmp/forge-out/TestToken.sol/TestToken.json
 
     steps:
       - name: Checkout
@@ -72,7 +72,7 @@ jobs:
 
       - name: Start Anvil and compile the test ERC-20
         run: |
-          mkdir -p "${{ runner.temp }}/forge-out"
+          mkdir -p /tmp/forge-out
           docker run --detach --name anvil-ci \
             --entrypoint anvil \
             --publish 8545:8545 \
@@ -81,7 +81,7 @@ jobs:
           docker run --rm \
             --entrypoint forge \
             --volume "${{ github.workspace }}:/workspace" \
-            --volume "${{ runner.temp }}/forge-out:/forge-out" \
+            --volume "/tmp/forge-out:/forge-out" \
             --workdir /workspace \
             ghcr.io/foundry-rs/foundry:latest \
             build --root /workspace/src/test/evm --out /forge-out
