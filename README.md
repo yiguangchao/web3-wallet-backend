@@ -303,11 +303,48 @@ $env:WALLET_WITHDRAW_REPLACEMENT_LOOKBACK_BLOCKS="128"
 
 生产升级前先执行只读检查脚本 `docs/sql/V13__chain_lifecycle_preflight.sql`，再执行 Flyway 迁移。
 
+## 对账、风控与监控
+
+V14 增加定时三层对账：
+
+```text
+asset_account <-> 最新 asset_flow 余额快照
+充值/提现订单 <-> 必需的资金流水
+平台链上资产 >= 用户内部负债
+```
+
+每次执行写入 `reconciliation_run`，差异写入 `reconciliation_difference`。发现用户级账本或订单差异时会冻结该用户提现；发现任意关键差异或对账执行失败时会设置 `platform_operation_switch.WITHDRAW` 为暂停。干净的后续批次会关闭历史差异，但不会自动恢复提现，必须由管理员确认后调用恢复接口。
+
+链上资产统计地址通过 `WALLET_RECONCILIATION_ASSET_ADDRESSES` 配置，多个地址使用逗号分隔；为空时只统计提现热钱包。生产环境必须把热钱包、归集钱包以及其他实际承担用户负债的托管地址完整列入，否则会产生资产不足差异并自动暂停提现。
+
+V14 默认策略要求提现地址白名单，并为 Sepolia ETH 设置用户每日 `10 ETH`、平台每日 `100 ETH`，为 USDC 设置用户每日 `10000 USDC`、平台每日 `100000 USDC`。单笔最小/最大值继续来自 `supported_asset`。每日限额检查在币种策略行锁内完成，拒绝订单不占用限额；所有提现仍从 `PENDING_REVIEW` 开始人工审核。审核人写入 `reviewer_user_id`，签名/广播操作人写入 `operator_user_id`，包括管理员在内都不能由同一用户完成两步。
+
+管理接口仅允许 `ADMIN`：
+
+- `POST /api/admin/risk/withdraw-addresses`：加入提现地址白名单。
+- `DELETE /api/admin/risk/withdraw-addresses/{id}`：停用白名单地址。
+- `GET|POST /api/admin/risk/withdraw-policies`：查询或调整每日限额和白名单要求。
+- `POST /api/admin/risk/users/{userId}/freeze|release`：冻结或解除用户提现。
+- `POST /api/admin/risk/withdrawals/pause|resume`：暂停或恢复全局提现。
+- `POST /api/admin/reconciliation/run`：立即执行对账。
+- `GET /api/admin/reconciliation/differences`：查询对账差异。
+
+登录与业务 API 使用 Redis 原子计数限流，默认登录每 IP 每分钟 `10` 次、其他 API 每用户或 IP 每分钟 `120` 次。Redis 异常默认 fail-closed 返回 `503`，超过限额返回 `429`。可通过 `WALLET_LOGIN_RATE_LIMIT`、`WALLET_API_RATE_LIMIT`、`WALLET_API_RATE_LIMIT_WINDOW_SECONDS` 和 `WALLET_API_RATE_LIMIT_FAIL_OPEN` 调整。
+
+Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需要 `ADMIN` 权限，生产环境还应在网络层限制监控端点。当前指标包括：
+
+- `wallet.scan.block.lag`、`wallet.rpc.requests`、`wallet.rpc.errors`；
+- `wallet.outbox.backlog`、`wallet.withdraw.pending`、`wallet.nonce.gap`；
+- `wallet.hot_wallet.asset.balance`、`wallet.hot_wallet.gas.balance`；
+- `wallet.ledger.anomalies`、`wallet.reconciliation.differences`；
+- `wallet.chain.reorganizations`、`wallet.monitoring.collection.errors`。
+
+生产升级前执行 `docs/sql/V14__reconciliation_risk_preflight.sql`。完成迁移后应先配置对账地址和风险策略、录入用户白名单，再开启 `WALLET_RECONCILIATION_ENABLED`。
+
 ## 后续计划
 
 - ERC-20 Gas 自动补给与风控
 - 提现与充值归集共享热钱包时的统一 Nonce 域
-- 链上余额、内部账本和资产流水三方对账
 - 卡单加速交易生成与人工风险冻结解冻流程
 - 后端应用 Docker 镜像与完整部署编排
 
@@ -322,7 +359,8 @@ Phase 3：真实充值扫描、确认、重组处理，已完成
 Phase 4：提现冻结、审核、签名、广播，已完成
 Phase 5：Nonce、签名隔离、链上交易快照与 Outbox 广播恢复，已完成
 Phase 6：EIP-1559、Gas 风控、Receipt 确认与充值重组风险冻结，已完成
-Phase 7：Docker 镜像、部署脚本、监控告警，待开发
+Phase 7：三层对账、提现风控、限流与运营监控，已完成
+Phase 8：Docker 镜像、部署脚本、告警规则与仪表盘，待开发
 
 ### 模拟充值安全隔离
 

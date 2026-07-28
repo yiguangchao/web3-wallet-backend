@@ -1,6 +1,7 @@
 package com.example.wallet.infrastructure.web3;
 
 import java.time.Duration;
+import io.micrometer.core.instrument.MeterRegistry;
 import okhttp3.OkHttpClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,7 +12,7 @@ import org.web3j.protocol.http.HttpService;
 public class Web3Config {
 
     @Bean
-    public OkHttpClient web3HttpClient(Web3Properties properties) {
+    public OkHttpClient web3HttpClient(Web3Properties properties, MeterRegistry meterRegistry) {
         return new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofMillis(properties.getConnectTimeout()))
                 .readTimeout(Duration.ofMillis(properties.getReadTimeout()))
@@ -21,7 +22,7 @@ public class Web3Config {
                 .addInterceptor(new RpcRetryInterceptor(
                         properties.getMaxRetries(),
                         properties.getRetryBackoff(),
-                        properties.getRetryMaxBackoff()))
+                        properties.getRetryMaxBackoff(), meterRegistry))
                 .addInterceptor(new RpcRateLimitInterceptor(properties.getMaxRequestsPerSecond()))
                 .build();
     }

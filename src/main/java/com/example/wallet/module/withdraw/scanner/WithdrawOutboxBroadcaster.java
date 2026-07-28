@@ -4,6 +4,7 @@ import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.withdraw.config.WithdrawBroadcastProperties;
 import com.example.wallet.module.withdraw.service.OutboxBroadcastTask;
 import com.example.wallet.module.withdraw.service.WithdrawOutboxService;
+import com.example.wallet.module.risk.service.RiskControlService;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,18 +22,21 @@ public class WithdrawOutboxBroadcaster {
     private final WithdrawOutboxService outboxService;
     private final Web3Service web3Service;
     private final WithdrawBroadcastProperties properties;
+    private final RiskControlService riskControlService;
 
     public WithdrawOutboxBroadcaster(WithdrawOutboxService outboxService,
                                      Web3Service web3Service,
-                                     WithdrawBroadcastProperties properties) {
+                                     WithdrawBroadcastProperties properties,
+                                     RiskControlService riskControlService) {
         this.outboxService = outboxService;
         this.web3Service = web3Service;
         this.properties = properties;
+        this.riskControlService = riskControlService;
     }
 
     @Scheduled(fixedDelayString = "${wallet.withdraw-broadcast.fixed-delay:5000}")
     public void runOnce() {
-        if (!properties.isEnabled()) {
+        if (!properties.isEnabled() || riskControlService.withdrawalsPaused()) {
             return;
         }
         try {

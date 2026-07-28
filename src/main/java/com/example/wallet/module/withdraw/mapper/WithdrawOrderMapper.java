@@ -3,6 +3,7 @@ package com.example.wallet.module.withdraw.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import java.math.BigInteger;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -51,4 +52,39 @@ public interface WithdrawOrderMapper extends BaseMapper<WithdrawOrder> {
                             @Param("nonce") BigInteger nonce,
                             @Param("signerKeyId") String signerKeyId,
                             @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Select("""
+            SELECT COALESCE(SUM(amount), 0) FROM withdraw_order
+            WHERE user_id = #{userId} AND asset_id = #{assetId}
+              AND created_at >= #{dayStart} AND status <> 5
+            """)
+    BigDecimal sumUserDailyAmount(@Param("userId") Long userId,
+                                  @Param("assetId") Long assetId,
+                                  @Param("dayStart") LocalDateTime dayStart);
+
+    @Select("""
+            SELECT COALESCE(SUM(amount), 0) FROM withdraw_order
+            WHERE asset_id = #{assetId} AND created_at >= #{dayStart} AND status <> 5
+            """)
+    BigDecimal sumPlatformDailyAmount(@Param("assetId") Long assetId,
+                                      @Param("dayStart") LocalDateTime dayStart);
+
+    @Update("""
+            UPDATE withdraw_order SET reviewer_user_id = #{reviewerUserId}, updated_at = #{updatedAt}
+            WHERE id = #{id} AND status = #{status} AND reviewer_user_id IS NULL
+            """)
+    int assignReviewerIfAbsent(@Param("id") Long id,
+                               @Param("status") Integer status,
+                               @Param("reviewerUserId") Long reviewerUserId,
+                               @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Update("""
+            UPDATE withdraw_order SET operator_user_id = #{operatorUserId}, updated_at = #{updatedAt}
+            WHERE id = #{id} AND status = #{status} AND operator_user_id IS NULL
+              AND (reviewer_user_id IS NULL OR reviewer_user_id <> #{operatorUserId})
+            """)
+    int assignOperatorIfSeparated(@Param("id") Long id,
+                                  @Param("status") Integer status,
+                                  @Param("operatorUserId") Long operatorUserId,
+                                  @Param("updatedAt") LocalDateTime updatedAt);
 }

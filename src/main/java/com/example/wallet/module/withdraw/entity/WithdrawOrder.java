@@ -31,6 +31,8 @@ public class WithdrawOrder {
     private Integer status;
     private LocalDateTime statusChangedAt;
     private String manualReviewReason;
+    private Long reviewerUserId;
+    private Long operatorUserId;
     private String txHash;
     private String remark;
     private LocalDateTime createdAt;

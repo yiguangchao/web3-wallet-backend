@@ -10,6 +10,7 @@ import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.deposit.entity.DepositOrder;
 import com.example.wallet.module.wallet.entity.CustodyDepositAddress;
 import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
+import com.example.wallet.module.monitoring.WalletOperationalMetrics;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Duration;
@@ -49,6 +50,7 @@ public class DepositBlockScanner {
     private final RedisDistributedLock distributedLock;
     private final SupportedAssetService supportedAssetService;
     private final Web3Properties web3Properties;
+    private final WalletOperationalMetrics operationalMetrics;
 
     public DepositBlockScanner(Web3j web3j,
                                CustodyDepositAddressMapper depositAddressMapper,
@@ -56,7 +58,8 @@ public class DepositBlockScanner {
                                DepositScanPersistenceService persistenceService,
                                RedisDistributedLock distributedLock,
                                SupportedAssetService supportedAssetService,
-                               Web3Properties web3Properties) {
+                               Web3Properties web3Properties,
+                               WalletOperationalMetrics operationalMetrics) {
         this.web3j = web3j;
         this.depositAddressMapper = depositAddressMapper;
         this.properties = properties;
@@ -64,6 +67,7 @@ public class DepositBlockScanner {
         this.distributedLock = distributedLock;
         this.supportedAssetService = supportedAssetService;
         this.web3Properties = web3Properties;
+        this.operationalMetrics = operationalMetrics;
     }
 
     @Scheduled(fixedDelayString = "${wallet.scan.fixed-delay:15000}")
@@ -164,6 +168,7 @@ public class DepositBlockScanner {
             }
         }
         persistenceService.rewind(rewindBlock, rewindHash);
+        operationalMetrics.recordReorganization();
         log.warn("Chain reorg detected, scanner rewound from block {} to {}",
                 record.getLastScannedBlock(), rewindBlock);
         return persistenceService.getOrCreateRecord();

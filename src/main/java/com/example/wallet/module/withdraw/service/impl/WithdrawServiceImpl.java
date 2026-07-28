@@ -2,6 +2,7 @@ package com.example.wallet.module.withdraw.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.wallet.common.exception.BizException;
+import com.example.wallet.common.api.AuditActorProvider;
 import com.example.wallet.infrastructure.web3.Web3Service;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.service.AssetService;
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import com.example.wallet.module.withdraw.service.WithdrawChainLifecycleService;
+import com.example.wallet.module.risk.service.RiskControlService;
 
 @Service
 public class WithdrawServiceImpl implements WithdrawService {
@@ -35,6 +37,8 @@ public class WithdrawServiceImpl implements WithdrawService {
     private final WithdrawAuditService withdrawAuditService;
     private final WithdrawTransactionPreparationService transactionPreparationService;
     private final WithdrawChainLifecycleService chainLifecycleService;
+    private final RiskControlService riskControlService;
+    private final AuditActorProvider actorProvider;
 
     public WithdrawServiceImpl(WithdrawOrderMapper withdrawOrderMapper,
                                Web3Service web3Service,
@@ -42,7 +46,9 @@ public class WithdrawServiceImpl implements WithdrawService {
                                SupportedAssetService supportedAssetService,
                                WithdrawAuditService withdrawAuditService,
                                WithdrawTransactionPreparationService transactionPreparationService,
-                               WithdrawChainLifecycleService chainLifecycleService) {
+                               WithdrawChainLifecycleService chainLifecycleService,
+                               RiskControlService riskControlService,
+                               AuditActorProvider actorProvider) {
         this.withdrawOrderMapper = withdrawOrderMapper;
         this.web3Service = web3Service;
         this.assetService = assetService;
@@ -50,6 +56,8 @@ public class WithdrawServiceImpl implements WithdrawService {
         this.withdrawAuditService = withdrawAuditService;
         this.transactionPreparationService = transactionPreparationService;
         this.chainLifecycleService = chainLifecycleService;
+        this.riskControlService = riskControlService;
+        this.actorProvider = actorProvider;
     }
 
     @Override
@@ -67,6 +75,8 @@ public class WithdrawServiceImpl implements WithdrawService {
         }
         SupportedAsset asset = supportedAssetService.getRequiredWithdrawAsset(request.getAssetCode());
         validateAmount(request.getAmount(), asset);
+        riskControlService.validateWithdrawal(
+                userId, asset, request.getToAddress(), request.getAmount());
         BigDecimal fee = asset.getPlatformWithdrawFee();
         LocalDateTime now = LocalDateTime.now();
         WithdrawOrder order = new WithdrawOrder();
@@ -107,12 +117,16 @@ public class WithdrawServiceImpl implements WithdrawService {
     public Integer approveWithdraw(Long orderId, String remark) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
         if (order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
+            if (order.getReviewerUserId() == null) {
+                assignReviewer(order);
+            }
             return order.getStatus();
         }
         supportedAssetService.getRequiredById(order.getAssetId());
         transition(order, WithdrawStatus.PENDING_REVIEW, WithdrawStatus.APPROVED,
                 "APPROVE", StringUtils.hasText(remark)
                         ? remark : "withdraw approved, waiting for signing", null, null);
+        assignReviewer(order);
         return order.getStatus();
     }
 
@@ -122,6 +136,9 @@ public class WithdrawServiceImpl implements WithdrawService {
     public Integer rejectWithdraw(Long orderId, String remark) {
         WithdrawOrder order = requireOrderForUpdate(orderId);
         if (order.getStatus().equals(WithdrawStatus.REJECTED.getCode())) {
+            if (order.getReviewerUserId() == null) {
+                assignReviewer(order);
+            }
             return order.getStatus();
         }
         if (!order.getStatus().equals(WithdrawStatus.PENDING_REVIEW.getCode())) {
@@ -132,6 +149,7 @@ public class WithdrawServiceImpl implements WithdrawService {
         transition(order, WithdrawStatus.PENDING_REVIEW, WithdrawStatus.REJECTED,
                 "REJECT", StringUtils.hasText(remark)
                         ? remark : "withdraw rejected, frozen asset released", null, null);
+        assignReviewer(order);
         return order.getStatus();
     }
 
@@ -154,6 +172,10 @@ public class WithdrawServiceImpl implements WithdrawService {
         if (!order.getStatus().equals(WithdrawStatus.APPROVED.getCode())) {
             throw new BizException("withdraw order status cannot be broadcast");
         }
+        if (riskControlService.withdrawalsPaused()) {
+            throw new BizException("global withdrawal is paused");
+        }
+        assignSeparatedOperator(order);
         SupportedAsset asset = supportedAssetService.getRequiredWithdrawAsset(
                 supportedAssetService.getRequiredById(order.getAssetId()).getAssetCode());
 
@@ -232,5 +254,31 @@ public class WithdrawServiceImpl implements WithdrawService {
         if (amount.compareTo(asset.getMaxSingleWithdraw()) > 0) {
             throw new BizException("withdraw amount exceeds the single-withdraw limit");
         }
+    }
+
+    private void assignReviewer(WithdrawOrder order) {
+        Long reviewerId = actorProvider.current().userId();
+        LocalDateTime now = LocalDateTime.now();
+        if (withdrawOrderMapper.assignReviewerIfAbsent(
+                order.getId(), order.getStatus(), reviewerId, now) != 1) {
+            throw new BizException("withdraw reviewer assignment failed");
+        }
+        order.setReviewerUserId(reviewerId);
+    }
+
+    private void assignSeparatedOperator(WithdrawOrder order) {
+        Long operatorId = actorProvider.current().userId();
+        if (order.getReviewerUserId() == null) {
+            throw new BizException("withdraw order has no recorded reviewer");
+        }
+        if (order.getReviewerUserId().equals(operatorId)) {
+            throw new BizException("withdraw reviewer and operator must be different users");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (withdrawOrderMapper.assignOperatorIfSeparated(
+                order.getId(), WithdrawStatus.APPROVED.getCode(), operatorId, now) != 1) {
+            throw new BizException("withdraw operator assignment failed or violates separation of duties");
+        }
+        order.setOperatorUserId(operatorId);
     }
 }

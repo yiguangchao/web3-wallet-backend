@@ -52,6 +52,12 @@ wallet:
   operations:
     deposit-enabled: ${WALLET_DEPOSIT_ENABLED:true}
     withdraw-enabled: ${WALLET_WITHDRAW_ENABLED:true}
+  api-rate-limit:
+    enabled: ${WALLET_API_RATE_LIMIT_ENABLED:true}
+    login-limit: ${WALLET_LOGIN_RATE_LIMIT:10}
+    api-limit: ${WALLET_API_RATE_LIMIT:120}
+    window-seconds: ${WALLET_API_RATE_LIMIT_WINDOW_SECONDS:60}
+    fail-open: ${WALLET_API_RATE_LIMIT_FAIL_OPEN:false}
   signer:
     hot-wallet-address: ${WALLET_SIGNER_HOT_WALLET_ADDRESS:}
     key-id: ${WALLET_SIGNER_KEY_ID:withdraw-v1}
@@ -74,6 +80,15 @@ wallet:
     receipt-fixed-delay: ${WALLET_WITHDRAW_RECEIPT_FIXED_DELAY:15000}
     receipt-batch-size: ${WALLET_WITHDRAW_RECEIPT_BATCH_SIZE:50}
     replacement-lookback-blocks: ${WALLET_WITHDRAW_REPLACEMENT_LOOKBACK_BLOCKS:128}
+  reconciliation:
+    enabled: ${WALLET_RECONCILIATION_ENABLED:false}
+    fixed-delay: ${WALLET_RECONCILIATION_FIXED_DELAY:3600000}
+    lock-lease: ${WALLET_RECONCILIATION_LOCK_LEASE:600000}
+    lock-key: ${WALLET_RECONCILIATION_LOCK_KEY:wallet:reconciliation:lock}
+    asset-addresses: ${WALLET_RECONCILIATION_ASSET_ADDRESSES:}
+  monitoring:
+    enabled: ${WALLET_MONITORING_ENABLED:true}
+    fixed-delay: ${WALLET_MONITORING_FIXED_DELAY:30000}
   signature:
     challenge-ttl: ${WALLET_SIGNATURE_CHALLENGE_TTL:300000}
   custody:
@@ -111,3 +126,12 @@ wallet:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when_authorized

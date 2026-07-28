@@ -3,6 +3,7 @@ package com.example.wallet.infrastructure.web3;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import okhttp3.OkHttpClient;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 class Web3ConfigTest {
@@ -19,7 +20,8 @@ class Web3ConfigTest {
         properties.setRetryMaxBackoff(1_000L);
         properties.setMaxRequestsPerSecond(5);
 
-        OkHttpClient client = new Web3Config().web3HttpClient(properties);
+        OkHttpClient client = new Web3Config().web3HttpClient(
+                properties, new SimpleMeterRegistry());
 
         assertThat(client.connectTimeoutMillis()).isEqualTo(1_000);
         assertThat(client.readTimeoutMillis()).isEqualTo(2_000);

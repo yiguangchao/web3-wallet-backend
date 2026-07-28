@@ -9,6 +9,13 @@ import org.apache.ibatis.annotations.Insert;
 public interface AssetAccountMapper extends BaseMapper<AssetAccount> {
 
     @Select("""
+            SELECT COUNT(*) FROM asset_account
+            WHERE available_balance < 0 OR frozen_balance < 0
+               OR total_balance <> available_balance + frozen_balance
+            """)
+    long countInvariantViolations();
+
+    @Select("""
             <script>
             SELECT * FROM asset_account
             WHERE user_id = #{userId}
