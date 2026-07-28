@@ -7,7 +7,7 @@ import com.example.wallet.infrastructure.custody.SweepNotRequiredException;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
 import com.example.wallet.infrastructure.web3.Web3Service;
-import com.example.wallet.module.deposit.config.DepositScanProperties;
+import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.wallet.entity.CustodySweepOrder;
 import com.example.wallet.module.wallet.service.CustodySweepService;
 import java.math.BigInteger;
@@ -28,22 +28,22 @@ public class CustodySweepWorker {
     private final CustodySweepService sweepService;
     private final CustodyKeyService keyService;
     private final CustodyWalletProperties custodyProperties;
-    private final DepositScanProperties scanProperties;
     private final Web3Service web3Service;
     private final RedisDistributedLock distributedLock;
+    private final SupportedAssetService supportedAssetService;
 
     public CustodySweepWorker(CustodySweepService sweepService,
                               CustodyKeyService keyService,
                               CustodyWalletProperties custodyProperties,
-                              DepositScanProperties scanProperties,
                               Web3Service web3Service,
-                              RedisDistributedLock distributedLock) {
+                              RedisDistributedLock distributedLock,
+                              SupportedAssetService supportedAssetService) {
         this.sweepService = sweepService;
         this.keyService = keyService;
         this.custodyProperties = custodyProperties;
-        this.scanProperties = scanProperties;
         this.web3Service = web3Service;
         this.distributedLock = distributedLock;
+        this.supportedAssetService = supportedAssetService;
     }
 
     @Scheduled(fixedDelayString = "${wallet.custody.sweep.fixed-delay:15000}")
@@ -63,6 +63,7 @@ public class CustodySweepWorker {
             return;
         }
         try {
+            scheduleMissingSweepTasks();
             sweepService.recoverStaleProcessing();
             broadcastPending(handle.get(), lease);
             syncBroadcasted(handle.get(), lease);
@@ -73,6 +74,17 @@ public class CustodySweepWorker {
                 distributedLock.unlock(handle.get());
             } catch (Exception ex) {
                 log.warn("Unable to release custody sweep lock", ex);
+            }
+        }
+    }
+
+    private void scheduleMissingSweepTasks() {
+        for (Long depositOrderId : sweepService.listPendingDepositIds(
+                custodyProperties.getSweep().getBatchSize())) {
+            try {
+                sweepService.schedulePendingDeposit(depositOrderId);
+            } catch (Exception ex) {
+                log.warn("Unable to create sweep task for deposit {}", depositOrderId, ex);
             }
         }
     }
@@ -130,7 +142,9 @@ public class CustodySweepWorker {
                     currentBlock = web3Service.getCurrentBlockNumber();
                 }
                 BigInteger confirmations = currentBlock.subtract(receipt.getBlockNumber()).add(BigInteger.ONE);
-                if (confirmations.compareTo(BigInteger.valueOf(scanProperties.getConfirmBlocks())) >= 0) {
+                int requiredConfirmations = supportedAssetService
+                        .getRequiredById(order.getAssetId()).getConfirmationBlocks();
+                if (confirmations.compareTo(BigInteger.valueOf(requiredConfirmations)) >= 0) {
                     sweepService.markConfirmed(order.getId());
                 }
             } catch (Exception ex) {

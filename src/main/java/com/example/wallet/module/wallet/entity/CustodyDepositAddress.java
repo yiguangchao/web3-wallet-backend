@@ -15,6 +15,8 @@ public class CustodyDepositAddress {
     private Long userId;
     private String chain;
     private String address;
+    private String custodyType;
+    private String addressType;
     private String keyVersion;
     private Long derivationIndex;
     private String derivationPath;

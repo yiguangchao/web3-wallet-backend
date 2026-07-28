@@ -16,6 +16,7 @@ public class CustodySweepOrder {
     private Long depositOrderId;
     private Long addressId;
     private Long userId;
+    private Long assetId;
     private String chain;
     private String tokenSymbol;
     private String tokenAddress;
