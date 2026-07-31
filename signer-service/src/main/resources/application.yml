@@ -1,0 +1,37 @@
+server:
+  port: ${SIGNER_PORT:8443}
+  ssl:
+    enabled: ${SIGNER_TLS_ENABLED:true}
+    key-store: ${SIGNER_TLS_KEY_STORE}
+    key-store-password: ${SIGNER_TLS_KEY_STORE_PASSWORD}
+    key-store-type: PKCS12
+    trust-store: ${SIGNER_TLS_TRUST_STORE}
+    trust-store-password: ${SIGNER_TLS_TRUST_STORE_PASSWORD}
+    trust-store-type: PKCS12
+    client-auth: NEED
+spring:
+  application:
+    name: wallet-signer-service
+  datasource:
+    url: ${SIGNER_MYSQL_URL}
+    username: ${SIGNER_MYSQL_USERNAME}
+    password: ${SIGNER_MYSQL_PASSWORD}
+  flyway:
+    enabled: true
+    clean-disabled: true
+signer:
+  wallet-service-token-hash: ${SIGNER_WALLET_TOKEN_SHA256}
+  admin-service-token-hash: ${SIGNER_ADMIN_TOKEN_SHA256}
+  wallet-subject-pattern: ${SIGNER_WALLET_SUBJECT_PATTERN:^CN=web3-wallet-backend(?:,.*)?$}
+  admin-subject-pattern: ${SIGNER_ADMIN_SUBJECT_PATTERN:^CN=wallet-key-admin-[^,]+(?:,.*)?$}
+  request-clock-skew-seconds: ${SIGNER_REQUEST_CLOCK_SKEW_SECONDS:60}
+  production: ${SIGNER_PRODUCTION:true}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true

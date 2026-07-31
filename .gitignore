@@ -6,6 +6,11 @@ src/test/evm/out/
 .vscode/
 *.log
 .env
+node_modules/
+dist/
+staking-protocol/out/
+staking-protocol/cache/
+staking-protocol/broadcast/
 !.mvn/wrapper/maven-wrapper.jar
 PROJECT_DEEP_DIVE.md
 docs/

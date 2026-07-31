@@ -30,10 +30,17 @@ wallet:
     hot-wallet-address: ${WALLET_SIGNER_HOT_WALLET_ADDRESS}
     key-id: ${WALLET_SIGNER_KEY_ID}
     remote-url: ${WALLET_SIGNER_REMOTE_URL}
+    remote-api-token: ${WALLET_SIGNER_REMOTE_API_TOKEN}
+    client-key-store: ${WALLET_SIGNER_CLIENT_KEY_STORE}
+    client-key-store-password: ${WALLET_SIGNER_CLIENT_KEY_STORE_PASSWORD}
+    trust-store: ${WALLET_SIGNER_TRUST_STORE}
+    trust-store-password: ${WALLET_SIGNER_TRUST_STORE_PASSWORD}
   scan:
     enabled: ${WALLET_SCAN_ENABLED:false}
   custody:
     enabled: ${WALLET_CUSTODY_ENABLED:false}
+    remote-url: ${WALLET_CUSTODY_REMOTE_URL:}
+    remote-api-token: ${WALLET_CUSTODY_REMOTE_API_TOKEN:}
     sweep:
       enabled: ${WALLET_CUSTODY_SWEEP_ENABLED:false}
   withdraw-broadcast:
@@ -53,4 +60,3 @@ springdoc:
     enabled: ${SWAGGER_ENABLED:false}
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}
-

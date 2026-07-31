@@ -64,6 +64,11 @@ wallet:
     local-private-key: ${WALLET_SIGNER_LOCAL_PRIVATE_KEY:}
     remote-url: ${WALLET_SIGNER_REMOTE_URL:}
     remote-path: ${WALLET_SIGNER_REMOTE_PATH:/api/v1/sign/ethereum-transaction}
+    remote-api-token: ${WALLET_SIGNER_REMOTE_API_TOKEN:}
+    client-key-store: ${WALLET_SIGNER_CLIENT_KEY_STORE:}
+    client-key-store-password: ${WALLET_SIGNER_CLIENT_KEY_STORE_PASSWORD:}
+    trust-store: ${WALLET_SIGNER_TRUST_STORE:}
+    trust-store-password: ${WALLET_SIGNER_TRUST_STORE_PASSWORD:}
   withdraw-broadcast:
     enabled: ${WALLET_WITHDRAW_BROADCAST_ENABLED:true}
     fixed-delay: ${WALLET_WITHDRAW_BROADCAST_FIXED_DELAY:5000}
@@ -95,6 +100,8 @@ wallet:
     enabled: ${WALLET_CUSTODY_ENABLED:false}
     chain: ${WALLET_CUSTODY_CHAIN:ETH_SEPOLIA}
     active-key-version: ${WALLET_CUSTODY_KEY_VERSION:v1}
+    remote-url: ${WALLET_CUSTODY_REMOTE_URL:}
+    remote-api-token: ${WALLET_CUSTODY_REMOTE_API_TOKEN:}
     keys:
       - version: ${WALLET_CUSTODY_KEY_VERSION:v1}
         mnemonic: ${WALLET_CUSTODY_MNEMONIC:}

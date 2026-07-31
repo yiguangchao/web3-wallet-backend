@@ -10,6 +10,29 @@ permissions:
   contents: read
 
 jobs:
+  signer-service-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: signer-service/pom.xml
+      - name: Test isolated signer service
+        working-directory: signer-service
+        run: mvn --batch-mode --no-transfer-progress clean test
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
   test:
     name: Build and test
     runs-on: ubuntu-latest
@@ -222,3 +245,110 @@ jobs:
               exit 1
             fi
           done
+
+  container-security:
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable candidate image
+        run: docker build --tag wallet:${{ github.sha }} .
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: wallet:${{ github.sha }}
+          artifact-name: wallet-${{ github.sha }}.spdx.json
+      - name: Scan candidate image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: wallet:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+      - name: Upload security report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  solidity-protocol-test:
+    name: Solidity fuzz and invariant tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: staking-protocol
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Formatting
+        run: forge fmt --check
+      - name: Unit, fuzz and invariant tests
+        run: forge test -vv
+      - name: Coverage report
+        run: forge coverage --report summary
+
+  solidity-static-analysis:
+    name: Slither static analysis
+    runs-on: ubuntu-latest
+    needs: solidity-protocol-test
+    defaults:
+      run:
+        working-directory: staking-protocol
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Slither
+        run: pip install slither-analyzer
+      - name: Analyze production contracts
+        run: >-
+          slither .
+          --compile-force-framework foundry
+          --filter-paths "test|src/mocks"
+          --exclude-dependencies
+          --json slither-report.json
+      - name: Upload Slither report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slither-report
+          path: staking-protocol/slither-report.json
+          if-no-files-found: warn
+
+  staking-dapp-build:
+    name: Staking dApp production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: staking-protocol/frontend
+    env:
+      VITE_CHAIN_ID: 11155111
+      VITE_CHAIN_NAME: Sepolia
+      VITE_RPC_URL: https://ethereum-sepolia-rpc.publicnode.com
+      VITE_EXPLORER_URL: https://sepolia.etherscan.io
+      VITE_VAULT_ADDRESS: 0x0000000000000000000000000000000000000001
+      VITE_STAKING_TOKEN_ADDRESS: 0x0000000000000000000000000000000000000002
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: staking-protocol/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staking-dapp-dist
+          path: staking-protocol/frontend/dist
