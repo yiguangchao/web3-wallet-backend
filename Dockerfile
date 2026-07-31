@@ -10,7 +10,9 @@ RUN mvn --batch-mode --no-transfer-progress -DskipTests package
 
 FROM eclipse-temurin:17-jre-alpine AS runtime
 
-RUN addgroup -S wallet && adduser -S -G wallet wallet
+RUN apk upgrade --no-cache \
+    && addgroup -S wallet \
+    && adduser -S -G wallet wallet
 WORKDIR /app
 COPY --from=build /workspace/target/web3-wallet-backend-*.jar app.jar
 RUN chown wallet:wallet /app/app.jar
