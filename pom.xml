@@ -22,6 +22,8 @@
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <web3j.version>4.12.3</web3j.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <!-- 1.21.4 keeps the 1.x API used by the tests and supports Docker Engine 29+. -->
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 
     <dependencies>
