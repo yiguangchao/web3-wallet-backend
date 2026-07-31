@@ -269,7 +269,8 @@ jobs:
           image: wallet:${{ github.sha }}
           artifact-name: wallet-${{ github.sha }}.spdx.json
       - name: Scan candidate image
-        uses: aquasecurity/trivy-action@0.28.0
+        # v0.36.0, pinned to the verified immutable release commit.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: wallet:${{ github.sha }}
           format: sarif
