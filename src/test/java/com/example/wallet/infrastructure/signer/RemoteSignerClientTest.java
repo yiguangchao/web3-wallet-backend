@@ -42,7 +42,8 @@ class RemoteSignerClientTest {
         localSigned = new LocalDevSigner(localProperties).sign(request);
 
         remoteProperties = new SignerProperties();
-        remoteProperties.setRemoteUrl("http://signer.internal");
+        remoteProperties.setRemoteUrl("https://signer.internal");
+        remoteProperties.setRemoteApiToken("test-signer-token");
         remoteProperties.setKeyId("withdraw-v1");
         remoteProperties.setHotWalletAddress(Credentials.create(PRIVATE_KEY).getAddress());
         restClientBuilder = RestClient.builder();
@@ -51,7 +52,7 @@ class RemoteSignerClientTest {
 
     @Test
     void shouldAcceptRemoteSignatureOnlyAfterLocalVerification() throws Exception {
-        server.expect(once(), requestTo("http://signer.internal/api/v1/sign/ethereum-transaction"))
+        server.expect(once(), requestTo("https://signer.internal/api/v1/sign/ethereum-transaction"))
                 .andRespond(withSuccess(objectMapper.writeValueAsString(Map.of(
                         "rawTransaction", localSigned.rawTransaction(),
                         "txHash", localSigned.txHash(),
@@ -65,7 +66,7 @@ class RemoteSignerClientTest {
 
     @Test
     void shouldRejectRemoteHashThatDoesNotMatchRawTransaction() throws Exception {
-        server.expect(once(), requestTo("http://signer.internal/api/v1/sign/ethereum-transaction"))
+        server.expect(once(), requestTo("https://signer.internal/api/v1/sign/ethereum-transaction"))
                 .andRespond(withSuccess(objectMapper.writeValueAsString(Map.of(
                         "rawTransaction", localSigned.rawTransaction(),
                         "txHash", "0x" + "0".repeat(64),
