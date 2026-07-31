@@ -241,6 +241,9 @@ class WalletBusinessE2EIntegrationTest {
         String firstHash = withdrawService.broadcastWithdraw(orderId);
         assertThat(withdrawService.broadcastWithdraw(orderId)).isEqualTo(firstHash);
         outboxBroadcaster.runOnce();
+        assertThat(web3Service.isTransactionKnown(firstHash))
+                .as("ETH withdrawal must be submitted by the outbox worker")
+                .isTrue();
         awaitReceipt(firstHash);
         outboxBroadcaster.runOnce();
         authenticate(OPERATOR_ID, "e2e-operator", "OPERATOR");
@@ -262,6 +265,9 @@ class WalletBusinessE2EIntegrationTest {
 
         String txHash = withdrawService.broadcastWithdraw(orderId);
         outboxBroadcaster.runOnce();
+        assertThat(web3Service.isTransactionKnown(txHash))
+                .as("ERC-20 withdrawal must be submitted by the outbox worker")
+                .isTrue();
         awaitReceipt(txHash);
         authenticate(OPERATOR_ID, "e2e-operator", "OPERATOR");
         assertThat(withdrawService.syncWithdrawStatus(orderId)).isEqualTo(WithdrawStatus.MINED.getCode());

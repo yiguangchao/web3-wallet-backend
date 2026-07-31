@@ -99,6 +99,9 @@ class WithdrawTransactionPreparationServiceTest {
         assertThat(outboxCaptor.getValue().getChainTransactionId()).isEqualTo(transaction.getId());
         assertThat(outboxCaptor.getValue().getStatus()).isEqualTo(TransactionOutboxStatus.PENDING.getCode());
         assertThat(outboxCaptor.getValue().getAttemptCount()).isZero();
+        assertThat(outboxCaptor.getValue().getNextRetryAt())
+                .as("a new outbox record must be immediately eligible for delivery")
+                .isNull();
     }
 
     @Test

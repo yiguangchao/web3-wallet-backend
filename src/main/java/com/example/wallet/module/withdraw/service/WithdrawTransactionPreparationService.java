@@ -125,7 +125,10 @@ public class WithdrawTransactionPreparationService {
         outbox.setChainTransactionId(chainTransaction.getId());
         outbox.setStatus(TransactionOutboxStatus.PENDING.getCode());
         outbox.setAttemptCount(0);
-        outbox.setNextRetryAt(now);
+        // A null retry time means immediately eligible. Persisting `now` into a
+        // MySQL DATETIME(0) column can round it into the next second, causing an
+        // immediate worker pass to miss a newly-created outbox record.
+        outbox.setNextRetryAt(null);
         outbox.setCreatedAt(now);
         outbox.setUpdatedAt(now);
         if (outboxMapper.insert(outbox) != 1) {
