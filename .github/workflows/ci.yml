@@ -268,7 +268,7 @@ jobs:
         with:
           image: wallet:${{ github.sha }}
           artifact-name: wallet-${{ github.sha }}.spdx.json
-      - name: Scan candidate image
+      - name: Generate Trivy security report
         # v0.36.0, pinned to the verified immutable release commit.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
@@ -277,12 +277,22 @@ jobs:
           output: trivy-results.sarif
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: 1
+          exit-code: 0
       - name: Upload security report
-        if: always() && hashFiles('trivy-results.sarif') != ''
+        if: hashFiles('trivy-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
+      - name: Enforce image vulnerability gate
+        # Keep the blocking scan in table format so package names, installed
+        # versions and fixed versions are visible directly in the job log.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: wallet:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
 
   solidity-protocol-test:
     name: Solidity fuzz and invariant tests
