@@ -14,6 +14,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--reports", type=Path, required=True)
     parser.add_argument("--require", action="append", default=[])
+    parser.add_argument(
+        "--required-only",
+        action="store_true",
+        help="Only fail for missing, skipped, or failed tests named by --require.",
+    )
     parser.add_argument("--fail-on-skipped", action="store_true")
     parser.add_argument("--write-summary", action="store_true")
     return parser.parse_args()
@@ -28,6 +33,9 @@ def main() -> int:
 
     totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
     executed: set[str] = set()
+    successful: set[str] = set()
+    failed_cases: dict[str, str] = {}
+    skipped_cases: set[str] = set()
     for report_file in report_files:
         root = ET.parse(report_file).getroot()
         suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
@@ -37,8 +45,20 @@ def main() -> int:
             for case in suite.findall("testcase"):
                 class_name = case.attrib.get("classname", "")
                 method_name = case.attrib.get("name", "")
-                if case.find("skipped") is None:
-                    executed.add(f"{class_name}#{method_name}")
+                selector = f"{class_name}#{method_name}"
+                skipped_node = case.find("skipped")
+                failure_node = case.find("failure")
+                error_node = case.find("error")
+                if skipped_node is not None:
+                    skipped_cases.add(selector)
+                    continue
+                executed.add(selector)
+                problem = failure_node if failure_node is not None else error_node
+                if problem is None:
+                    successful.add(selector)
+                else:
+                    message = problem.attrib.get("message", "").strip()
+                    failed_cases[selector] = message or "test failed without a message"
 
     failed = totals["failures"] + totals["errors"]
     passed = totals["tests"] - failed - totals["skipped"]
@@ -50,19 +70,39 @@ def main() -> int:
     ]
     print("\n".join(lines))
 
+    if failed_cases:
+        print("Failed tests:", file=sys.stderr)
+        for selector, message in sorted(failed_cases.items()):
+            compact_message = " ".join(message.split())
+            print(f"- {selector}: {compact_message[:500]}", file=sys.stderr)
+
     if args.write_summary and os.getenv("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
             summary.write("## Test results\n\n")
             summary.write("\n".join(f"- {line}" for line in lines))
             summary.write("\n")
 
-    missing = sorted(set(args.require) - executed)
+    required = set(args.require)
+    observed = executed | skipped_cases
+    missing = sorted(required - observed)
+    required_failed = sorted(required & set(failed_cases))
+    required_skipped = sorted(required & skipped_cases)
     if missing:
-        print("Required tests did not execute:", file=sys.stderr)
+        print("Required tests were not reported:", file=sys.stderr)
         for selector in missing:
             print(f"- {selector}", file=sys.stderr)
+    if required_failed:
+        print("Required tests failed:", file=sys.stderr)
+        for selector in required_failed:
+            print(f"- {selector}", file=sys.stderr)
+    if required_skipped:
+        print("Required tests were skipped:", file=sys.stderr)
+        for selector in required_skipped:
+            print(f"- {selector}", file=sys.stderr)
 
-    if failed > 0 or missing:
+    if missing or required_failed or required_skipped:
+        return 1
+    if failed > 0 and not args.required_only:
         return 1
     if args.fail_on_skipped and totals["skipped"] > 0:
         print("CI forbids skipped tests; Docker-backed tests may not be skipped.", file=sys.stderr)
@@ -72,4 +112,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

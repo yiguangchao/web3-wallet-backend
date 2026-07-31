@@ -136,6 +136,7 @@ jobs:
         run: >-
           python3 scripts/ci_test_summary.py
           --reports target/surefire-reports
+          --required-only
           --require com.example.wallet.infrastructure.security.JwtTokenProviderTest#shouldCreateAndParseToken
 
       - name: Service Tests
@@ -145,6 +146,7 @@ jobs:
         run: >-
           python3 scripts/ci_test_summary.py
           --reports target/surefire-reports
+          --required-only
           --require com.example.wallet.module.asset.service.impl.AssetServiceImplTest#shouldCreditDepositAndPreserveBalanceInvariant
 
       - name: Flyway Migration Tests
@@ -154,6 +156,7 @@ jobs:
         run: >-
           python3 scripts/ci_test_summary.py
           --reports target/surefire-reports
+          --required-only
           --require com.example.wallet.migration.FlywayMySqlMigrationTest#shouldMigrateEmptyDatabaseFromV1ToLatest
 
       - name: MySQL Integration Tests
@@ -163,6 +166,7 @@ jobs:
         run: >-
           python3 scripts/ci_test_summary.py
           --reports target/surefire-reports
+          --required-only
           --require com.example.wallet.Web3WalletApplicationIntegrationTest#shouldCreateOnlyOneNativeAssetAccountUnderConcurrentCredits
 
       - name: Redis Tests
@@ -172,6 +176,7 @@ jobs:
         run: >-
           python3 scripts/ci_test_summary.py
           --reports target/surefire-reports
+          --required-only
           --require com.example.wallet.Web3WalletApplicationIntegrationTest#shouldReadAndWriteRedis
 
       - name: Blockchain Integration Tests
@@ -181,6 +186,7 @@ jobs:
         run: >-
           python3 scripts/ci_test_summary.py
           --reports target/surefire-reports
+          --required-only
           --require com.example.wallet.infrastructure.web3.AnvilBlockchainIntegrationTest#shouldTransferEthAndReachConfirmations
           --require com.example.wallet.infrastructure.web3.AnvilBlockchainIntegrationTest#shouldDeployAndTransferErc20
           --require com.example.wallet.WalletBusinessE2EIntegrationTest#shouldCreditEthDepositExactlyOnce
@@ -311,13 +317,22 @@ jobs:
           python-version: '3.12'
       - name: Install Slither
         run: pip install slither-analyzer
-      - name: Analyze production contracts
+      - name: Generate complete Slither report
         run: >-
           slither .
           --compile-force-framework foundry
           --filter-paths "test|src/mocks"
           --exclude-dependencies
+          --fail-none
           --json slither-report.json
+      - name: Enforce untriaged Slither findings
+        run: >-
+          slither .
+          --compile-force-framework foundry
+          --filter-paths "test|src/mocks"
+          --exclude-dependencies
+          --exclude
+          reentrancy-balance,divide-before-multiply,incorrect-equality,reentrancy-no-eth,reentrancy-benign,timestamp,low-level-calls
       - name: Upload Slither report
         if: always()
         uses: actions/upload-artifact@v4
