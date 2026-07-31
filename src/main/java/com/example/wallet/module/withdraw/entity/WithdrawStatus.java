@@ -49,7 +49,8 @@ public enum WithdrawStatus {
             case BROADCASTING -> target == BROADCASTED;
             case BROADCASTED -> target == MINED;
             case MINED -> target == CONFIRMED;
-            case CONFIRMED, REJECTED, MANUAL_REVIEW -> false;
+            case MANUAL_REVIEW -> target == CONFIRMED || target == REJECTED;
+            case CONFIRMED, REJECTED -> false;
         };
     }
 }

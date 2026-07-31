@@ -16,7 +16,7 @@ public class RemoteSignerClient implements TransactionSigner {
     private final SignerProperties properties;
 
     public RemoteSignerClient(RestClient.Builder restClientBuilder, SignerProperties properties) {
-        this.restClient = restClientBuilder.build();
+        this.restClient = SignerMtls.configure(restClientBuilder, properties).build();
         this.properties = properties;
     }
 
@@ -39,12 +39,18 @@ public class RemoteSignerClient implements TransactionSigner {
 
     @Override
     public SignedTransaction sign(TransactionSignRequest request) {
-        if (!StringUtils.hasText(properties.getRemoteUrl())) {
+        if (!StringUtils.hasText(properties.getRemoteUrl())
+                || !properties.getRemoteUrl().startsWith("https://")) {
             throw new BizException("remote signer URL is not configured");
+        }
+        if (!StringUtils.hasText(properties.getRemoteApiToken())) {
+            throw new BizException("remote signer API token is not configured");
         }
         try {
             RemoteSignResponse response = restClient.post()
                     .uri(remoteEndpoint())
+                    .header("Authorization", "Bearer " + properties.getRemoteApiToken())
+                    .header("Idempotency-Key", keyId() + ":" + request.chainId() + ":" + request.nonce())
                     .body(RemoteSignPayload.from(keyId(), hotWalletAddress(), request))
                     .retrieve()
                     .body(RemoteSignResponse.class);
@@ -83,13 +89,14 @@ public class RemoteSignerClient implements TransactionSigner {
             BigInteger value,
             String data,
             BigInteger maxPriorityFeePerGas,
-            BigInteger maxFeePerGas) {
+            BigInteger maxFeePerGas,
+            java.time.Instant requestedAt) {
 
         static RemoteSignPayload from(String keyId, String address, TransactionSignRequest request) {
             return new RemoteSignPayload(
                     keyId, address, "EIP1559", request.chainId(), request.nonce(),
                     request.gasLimit(), request.to(), request.value(), request.data(),
-                    request.maxPriorityFeePerGas(), request.maxFeePerGas());
+                    request.maxPriorityFeePerGas(), request.maxFeePerGas(), java.time.Instant.now());
         }
     }
 

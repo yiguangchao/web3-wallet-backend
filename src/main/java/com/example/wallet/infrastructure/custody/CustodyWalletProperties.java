@@ -16,6 +16,9 @@ public class CustodyWalletProperties {
     private boolean enabled;
     private String chain = "ETH_SEPOLIA";
     private String activeKeyVersion = "v1";
+    private String remoteUrl;
+    @ToString.Exclude
+    private String remoteApiToken;
     private List<KeyConfig> keys = new ArrayList<>();
     private Sweep sweep = new Sweep();
 

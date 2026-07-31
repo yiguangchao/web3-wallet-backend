@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.infrastructure.signer.TransactionSigner;
 import com.example.wallet.infrastructure.web3.Web3Service;
+import com.example.wallet.module.accounting.mapper.AccountingJournalMapper;
 import com.example.wallet.module.reconciliation.config.ReconciliationProperties;
 import com.example.wallet.module.reconciliation.entity.ReconciliationDifference;
 import com.example.wallet.module.reconciliation.entity.ReconciliationRun;
@@ -31,6 +32,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
     private final ReconciliationRunMapper runMapper;
     private final ReconciliationDifferenceMapper differenceMapper;
     private final ReconciliationProbeMapper probeMapper;
+    private final AccountingJournalMapper accountingJournalMapper;
     private final Web3Service web3Service;
     private final TransactionSigner transactionSigner;
     private final ReconciliationProperties properties;
@@ -39,6 +41,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
     public ReconciliationServiceImpl(ReconciliationRunMapper runMapper,
                                      ReconciliationDifferenceMapper differenceMapper,
                                      ReconciliationProbeMapper probeMapper,
+                                     AccountingJournalMapper accountingJournalMapper,
                                      Web3Service web3Service,
                                      TransactionSigner transactionSigner,
                                      ReconciliationProperties properties,
@@ -46,6 +49,7 @@ public class ReconciliationServiceImpl implements ReconciliationService {
         this.runMapper = runMapper;
         this.differenceMapper = differenceMapper;
         this.probeMapper = probeMapper;
+        this.accountingJournalMapper = accountingJournalMapper;
         this.web3Service = web3Service;
         this.transactionSigner = transactionSigner;
         this.properties = properties;
@@ -121,6 +125,13 @@ public class ReconciliationServiceImpl implements ReconciliationService {
                     mismatch.getUserId(), mismatch.getAssetId(), mismatch.getBusinessId(),
                     mismatch.getExpectedAmount(), mismatch.getActualAmount(),
                     "deposit or withdrawal order does not match its required asset flow", detectedAt));
+        }
+        long imbalancedJournals = accountingJournalMapper.countImbalancedJournals();
+        if (imbalancedJournals > 0) {
+            result.add(difference(runId, "DOUBLE_ENTRY", "ACCOUNTING_JOURNAL_IMBALANCE",
+                    null, null, null, BigDecimal.ZERO, BigDecimal.valueOf(imbalancedJournals),
+                    "append-only accounting journals are missing entries or do not sum to zero",
+                    detectedAt));
         }
         for (AssetLiability liability : probeMapper.listAssetLiabilities()) {
             BigDecimal onChain = queryPlatformAsset(liability);

@@ -16,4 +16,12 @@ public class SignerProperties {
     private String localPrivateKey;
     private String remoteUrl;
     private String remotePath = "/api/v1/sign/ethereum-transaction";
+    @ToString.Exclude
+    private String remoteApiToken;
+    private String clientKeyStore;
+    @ToString.Exclude
+    private String clientKeyStorePassword;
+    private String trustStore;
+    @ToString.Exclude
+    private String trustStorePassword;
 }
