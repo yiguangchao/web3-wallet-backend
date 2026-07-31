@@ -88,6 +88,7 @@ class WalletBusinessE2EIntegrationTest {
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
+            .withCommand("--log-bin-trust-function-creators=1")
             .withDatabaseName("wallet_e2e")
             .withUsername("test")
             .withPassword("test");

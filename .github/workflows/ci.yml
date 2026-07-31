@@ -41,6 +41,7 @@ jobs:
     services:
       mysql:
         image: mysql:8.0
+        command: --log-bin-trust-function-creators=1
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: wallet
