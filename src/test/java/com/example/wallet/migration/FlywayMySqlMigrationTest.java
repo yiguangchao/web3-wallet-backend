@@ -36,7 +36,7 @@ class FlywayMySqlMigrationTest {
 
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("14");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("16");
         assertThat(count("SELECT COUNT(*) FROM supported_asset")).isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM information_schema.tables "
                 + "WHERE table_schema = DATABASE() AND table_name = 'asset_freeze_detail'"))
@@ -70,7 +70,7 @@ class FlywayMySqlMigrationTest {
         Flyway latest = flyway(null);
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("14");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("16");
         assertThat(count("SELECT COUNT(*) FROM asset_account WHERE asset_id = 7001")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM wallet_address WHERE verified_at IS NULL")).isEqualTo(1);
     }
@@ -188,6 +188,30 @@ class FlywayMySqlMigrationTest {
                 + "(id,user_id,asset_id,business_type,business_id,principal_amount,fee_amount,"
                 + "frozen_amount,status,frozen_at) VALUES "
                 + "(3,10,7001,'WITHDRAW',201,1,0.1,1.2,0,NOW())"))
+                .isInstanceOf(SQLException.class);
+    }
+
+    @Test
+    void shouldMirrorAssetFlowsIntoBalancedAppendOnlyAccountingJournals() throws Exception {
+        flyway(null).migrate();
+        execute("INSERT INTO asset_flow "
+                + "(id,user_id,asset_id,chain,token_symbol,business_type,business_id,amount,"
+                + "before_available_balance,after_available_balance,before_frozen_balance,"
+                + "after_frozen_balance) VALUES "
+                + "(901,10,7001,'ETH_SEPOLIA','ETH','WITHDRAW_FREEZE',800,-1.1,"
+                + "5,3.9,0,1.1)");
+
+        assertThat(count("SELECT COUNT(*) FROM accounting_journal WHERE id=901 "
+                + "AND total_debit=total_credit AND total_debit=1.1")).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM accounting_entry WHERE journal_id=901")).isEqualTo(3);
+        assertThat(count("SELECT COUNT(*) FROM (SELECT journal_id FROM accounting_entry "
+                + "WHERE journal_id=901 GROUP BY journal_id HAVING SUM(delta_amount)=0) balanced"))
+                .isEqualTo(1);
+        assertThatThrownBy(() -> execute(
+                "UPDATE accounting_entry SET delta_amount=9 WHERE journal_id=901 "
+                        + "AND account_code='USER_AVAILABLE'"))
+                .isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> execute("DELETE FROM accounting_journal WHERE id=901"))
                 .isInstanceOf(SQLException.class);
     }
 

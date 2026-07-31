@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.wallet.infrastructure.signer.TransactionSigner;
 import com.example.wallet.infrastructure.web3.Web3Service;
+import com.example.wallet.module.accounting.mapper.AccountingJournalMapper;
 import com.example.wallet.module.reconciliation.config.ReconciliationProperties;
 import com.example.wallet.module.reconciliation.entity.ReconciliationDifference;
 import com.example.wallet.module.reconciliation.entity.ReconciliationRun;
@@ -32,6 +33,7 @@ class ReconciliationServiceImplTest {
     @Mock private ReconciliationRunMapper runMapper;
     @Mock private ReconciliationDifferenceMapper differenceMapper;
     @Mock private ReconciliationProbeMapper probeMapper;
+    @Mock private AccountingJournalMapper accountingJournalMapper;
     @Mock private Web3Service web3Service;
     @Mock private TransactionSigner signer;
     @Mock private RiskControlService riskControlService;
@@ -47,7 +49,8 @@ class ReconciliationServiceImplTest {
         when(runMapper.updateById(any(ReconciliationRun.class))).thenReturn(1);
         when(differenceMapper.insert(any(ReconciliationDifference.class))).thenReturn(1);
         service = new ReconciliationServiceImpl(runMapper, differenceMapper, probeMapper,
-                web3Service, signer, new ReconciliationProperties(), riskControlService);
+                accountingJournalMapper, web3Service, signer, new ReconciliationProperties(),
+                riskControlService);
     }
 
     @Test
@@ -73,6 +76,26 @@ class ReconciliationServiceImplTest {
         assertThat(captor.getValue().getDifferenceAmount()).isEqualByComparingTo("-1");
         verify(riskControlService).freezeUser(1L,
                 "reconciliation difference detected in run 900", 0L);
+        verify(riskControlService).pauseWithdrawals(
+                "reconciliation differences detected in run 900", 0L);
+    }
+
+    @Test
+    void shouldPauseWithdrawalsWhenDoubleEntryJournalIsImbalanced() {
+        when(probeMapper.findAccountFlowMismatches()).thenReturn(List.of());
+        when(probeMapper.findOrderFlowMismatches()).thenReturn(List.of());
+        when(probeMapper.listAssetLiabilities()).thenReturn(List.of());
+        when(accountingJournalMapper.countImbalancedJournals()).thenReturn(2L);
+
+        assertThat(service.run()).isEqualTo(900L);
+
+        ArgumentCaptor<ReconciliationDifference> captor =
+                ArgumentCaptor.forClass(ReconciliationDifference.class);
+        verify(differenceMapper).insert(captor.capture());
+        assertThat(captor.getValue().getLayerType()).isEqualTo("DOUBLE_ENTRY");
+        assertThat(captor.getValue().getDifferenceType())
+                .isEqualTo("ACCOUNTING_JOURNAL_IMBALANCE");
+        assertThat(captor.getValue().getActualAmount()).isEqualByComparingTo("2");
         verify(riskControlService).pauseWithdrawals(
                 "reconciliation differences detected in run 900", 0L);
     }

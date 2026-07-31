@@ -1,0 +1,44 @@
+# Isolated Google Cloud HSM signer
+
+This service is a separate security boundary. It accepts only mTLS-authenticated wallet-service requests, evaluates database policies, calls a Google Cloud KMS `EC_SIGN_SECP256K1_SHA256` key version, verifies the returned signature locally and returns an EIP-1559 raw transaction.
+
+## Security invariants
+
+- No private key or mnemonic is accepted by configuration or API.
+- Production TLS requires client certificates (`client-auth: NEED`).
+- A SHA-256 hashed service token is checked in addition to mTLS.
+- Every request requires a timestamp and idempotency key.
+- An idempotency reservation is committed before KMS is called. An interrupted request stays `PROCESSING` and is not signed again automatically.
+- Native recipients and decoded ERC-20 recipients must be allowlisted. Arbitrary contract calls are rejected.
+- Native and token limits are reserved with database row locks.
+- Signing starts emergency-stopped.
+- Key rotation, activation, disablement and resume require two different certificate identities. Emergency stop is immediate.
+- Audit rows are append-only and chained with SHA-256. Verification failure automatically stops signing.
+
+## Google Cloud setup
+
+Apply `deploy/terraform/google-kms.tf` through an independently approved infrastructure pipeline. The resulting key version must use `EC_SIGN_SECP256K1_SHA256` and `HSM`. Use GKE Workload Identity; do not mount a service-account JSON key.
+
+## Required runtime secrets
+
+- `SIGNER_MYSQL_URL`, `SIGNER_MYSQL_USERNAME`, `SIGNER_MYSQL_PASSWORD`
+- `SIGNER_WALLET_TOKEN_SHA256`, `SIGNER_ADMIN_TOKEN_SHA256` (distinct tokens)
+- `SIGNER_TLS_KEY_STORE`, `SIGNER_TLS_KEY_STORE_PASSWORD`
+- `SIGNER_TLS_TRUST_STORE`, `SIGNER_TLS_TRUST_STORE_PASSWORD`
+
+The MySQL identity should only access the signer schema. The wallet backend must have no access to this schema or Google KMS.
+
+## Wallet client mTLS
+
+Inject the client PKCS12 key/trust stores into the wallet workload and set JVM TLS properties through the deployment secret. Set `WALLET_SIGNER_REMOTE_API_TOKEN` to the unhashed token and `WALLET_SIGNER_REMOTE_URL=https://wallet-signer`.
+
+## Bootstrap
+
+1. Deploy with signing stopped.
+2. Insert withdrawal recipient and token policies through a separately audited database bootstrap/migration process.
+3. Propose a `ROTATE` key change containing the full KMS version name, derived Ethereum address, chain and native limits.
+4. Approve it using a different client certificate identity.
+5. Verify a test signature and recovered sender on a non-production key.
+6. Propose `RESUME`; approve with another identity.
+
+Changing policies directly is intentionally not exposed as a public API in this version. Treat policy migration as a controlled, reviewed release until a dedicated dual-control policy workflow is implemented.

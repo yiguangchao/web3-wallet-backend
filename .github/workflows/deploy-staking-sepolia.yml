@@ -1,0 +1,62 @@
+name: Deploy staking protocol to Sepolia
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staking-sepolia-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staking-sepolia
+    defaults:
+      run:
+        working-directory: staking-protocol
+    env:
+      SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+      DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+      ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+      STAKING_TOKEN_ADDRESS: ${{ vars.STAKING_TOKEN_ADDRESS }}
+      REWARD_TOKEN_ADDRESS: ${{ vars.REWARD_TOKEN_ADDRESS }}
+      VAULT_OWNER_ADDRESS: ${{ vars.VAULT_OWNER_ADDRESS }}
+      REWARD_DISTRIBUTOR_ADDRESS: ${{ vars.REWARD_DISTRIBUTOR_ADDRESS }}
+      REWARD_DURATION_SECONDS: ${{ vars.REWARD_DURATION_SECONDS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Test exact source before deployment
+        run: forge test -vv
+      - name: Validate protected environment configuration
+        shell: bash
+        run: |
+          test -n "$SEPOLIA_RPC_URL"
+          test -n "$DEPLOYER_PRIVATE_KEY"
+          test -n "$ETHERSCAN_API_KEY"
+          test -n "$STAKING_TOKEN_ADDRESS"
+          test -n "$REWARD_TOKEN_ADDRESS"
+          test -n "$VAULT_OWNER_ADDRESS"
+          test -n "$REWARD_DISTRIBUTOR_ADDRESS"
+          test -n "$REWARD_DURATION_SECONDS"
+      - name: Broadcast and verify deployment
+        run: >-
+          forge script script/Deploy.s.sol:DeploySecureStakingVault
+          --rpc-url "$SEPOLIA_RPC_URL"
+          --broadcast
+          --verify
+          --etherscan-api-key "$ETHERSCAN_API_KEY"
+          -vvvv
+      - name: Preserve public deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staking-sepolia-broadcast-${{ github.sha }}
+          path: staking-protocol/broadcast/Deploy.s.sol/11155111
+          if-no-files-found: warn
+          retention-days: 90

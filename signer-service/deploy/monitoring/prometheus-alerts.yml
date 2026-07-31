@@ -1,0 +1,16 @@
+groups:
+  - name: wallet-signer
+    rules:
+      - alert: WalletSignerDown
+        expr: up{job="wallet-signer"} == 0
+        for: 1m
+        labels: { severity: critical }
+      - alert: WalletSignerHttpErrors
+        expr: rate(http_server_requests_seconds_count{job="wallet-signer",status=~"5.."}[5m]) > 0
+        for: 2m
+        labels: { severity: critical }
+      - alert: WalletSignerLatency
+        expr: histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{job="wallet-signer",uri="/api/v1/sign/ethereum-transaction"}[5m])) > 2
+        for: 5m
+        labels: { severity: warning }
+
