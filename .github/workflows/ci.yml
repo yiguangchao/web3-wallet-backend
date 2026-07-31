@@ -244,14 +244,39 @@ jobs:
           BLOCKCHAIN_RESULT: ${{ steps.blockchain_tests.outcome }}
           REPORT_RESULT: ${{ steps.report.outcome }}
         run: |
-          for result in \
-            "$BUILD_RESULT" "$UNIT_RESULT" "$SERVICE_RESULT" "$FLYWAY_RESULT" \
-            "$MYSQL_RESULT" "$REDIS_RESULT" "$BLOCKCHAIN_RESULT" "$REPORT_RESULT"; do
-            if [ "$result" != "success" ]; then
-              echo "A required CI check failed: $result"
-              exit 1
+          failed_checks=()
+          check_result() {
+            local check_name="$1"
+            local check_result="$2"
+            printf '%-30s %s\n' "$check_name" "$check_result"
+            if [ "$check_result" != "success" ]; then
+              failed_checks+=("$check_name ($check_result)")
             fi
-          done
+          }
+
+          check_result "Build" "$BUILD_RESULT"
+          check_result "Unit Tests" "$UNIT_RESULT"
+          check_result "Service Tests" "$SERVICE_RESULT"
+          check_result "Flyway Migration Tests" "$FLYWAY_RESULT"
+          check_result "MySQL Integration Tests" "$MYSQL_RESULT"
+          check_result "Redis Tests" "$REDIS_RESULT"
+          check_result "Blockchain Integration Tests" "$BLOCKCHAIN_RESULT"
+          check_result "Test Results" "$REPORT_RESULT"
+
+          if [ "${#failed_checks[@]}" -ne 0 ]; then
+            {
+              echo "### Required CI checks failed"
+              for failed_check in "${failed_checks[@]}"; do
+                echo "- $failed_check"
+              done
+              echo
+              echo "Expand the named step above and inspect its first error."
+            } >> "$GITHUB_STEP_SUMMARY"
+            printf 'Required CI check failed: %s\n' "${failed_checks[@]}" >&2
+            exit 1
+          fi
+
+          echo "### All required CI checks passed" >> "$GITHUB_STEP_SUMMARY"
 
   container-security:
     runs-on: ubuntu-latest
