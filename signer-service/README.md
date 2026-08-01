@@ -9,6 +9,7 @@ This service is a separate security boundary. It accepts only mTLS-authenticated
 - A SHA-256 hashed service token is checked in addition to mTLS.
 - Every request requires a timestamp and idempotency key.
 - An idempotency reservation is committed before KMS is called. An interrupted request stays `PROCESSING` and is not signed again automatically.
+- KMS public keys, request digests and returned signatures are bound to the requested key version and verified with CRC32C before use.
 - Native recipients and decoded ERC-20 recipients must be allowlisted. Arbitrary contract calls are rejected.
 - Native and token limits are reserved with database row locks.
 - Signing starts emergency-stopped.
