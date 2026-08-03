@@ -6,6 +6,7 @@ import com.google.cloud.kms.v1.CryptoKeyVersion.CryptoKeyVersionAlgorithm;
 import com.google.cloud.kms.v1.CryptoKeyVersionName;
 import com.google.cloud.kms.v1.Digest;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
+import com.google.cloud.kms.v1.ProtectionLevel;
 import com.google.cloud.kms.v1.PublicKey;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Int64Value;
@@ -60,6 +61,9 @@ public class GoogleKmsSigner {
         if (publicKey.getAlgorithm() != CryptoKeyVersionAlgorithm.EC_SIGN_SECP256K1_SHA256) {
             throw new IllegalStateException("KMS key algorithm must be EC_SIGN_SECP256K1_SHA256");
         }
+        if (publicKey.getProtectionLevel() != ProtectionLevel.HSM) {
+            throw new IllegalStateException("KMS key protection level must be HSM");
+        }
         if (!publicKey.hasPemCrc32C()) {
             throw new IllegalStateException("KMS public key checksum is missing");
         }
@@ -72,6 +76,9 @@ public class GoogleKmsSigner {
     private byte[] verifiedSignature(String keyVersionName, AsymmetricSignResponse response) {
         if (!keyVersionName.equals(response.getName())) {
             throw new IllegalStateException("KMS signature key version does not match request");
+        }
+        if (response.getProtectionLevel() != ProtectionLevel.HSM) {
+            throw new IllegalStateException("KMS signature protection level must be HSM");
         }
         if (!response.getVerifiedDigestCrc32C()) {
             throw new IllegalStateException("KMS did not verify the transaction digest checksum");

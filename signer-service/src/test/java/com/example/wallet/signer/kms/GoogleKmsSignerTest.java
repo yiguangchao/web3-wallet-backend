@@ -13,6 +13,7 @@ import com.google.cloud.kms.v1.AsymmetricSignRequest;
 import com.google.cloud.kms.v1.AsymmetricSignResponse;
 import com.google.cloud.kms.v1.CryptoKeyVersion.CryptoKeyVersionAlgorithm;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
+import com.google.cloud.kms.v1.ProtectionLevel;
 import com.google.cloud.kms.v1.PublicKey;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Int64Value;
@@ -93,6 +94,42 @@ class GoogleKmsSignerTest {
     }
 
     @Test
+    void rejectsSoftwareProtectedPublicKey() {
+        when(client.getPublicKey(KEY_VERSION)).thenReturn(validPublicKey().toBuilder()
+                .setProtectionLevel(ProtectionLevel.SOFTWARE)
+                .build());
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> signer.publicAddress(KEY_VERSION));
+
+        assertEquals("KMS key protection level must be HSM", error.getMessage());
+    }
+
+    @Test
+    void rejectsPublicKeyWithoutDeclaredProtectionLevel() {
+        when(client.getPublicKey(KEY_VERSION)).thenReturn(validPublicKey().toBuilder()
+                .clearProtectionLevel()
+                .build());
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> signer.publicAddress(KEY_VERSION));
+
+        assertEquals("KMS key protection level must be HSM", error.getMessage());
+    }
+
+    @Test
+    void rejectsUnsupportedKmsAlgorithm() {
+        when(client.getPublicKey(KEY_VERSION)).thenReturn(validPublicKey().toBuilder()
+                .setAlgorithm(CryptoKeyVersionAlgorithm.EC_SIGN_P256_SHA256)
+                .build());
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> signer.publicAddress(KEY_VERSION));
+
+        assertEquals("KMS key algorithm must be EC_SIGN_SECP256K1_SHA256", error.getMessage());
+    }
+
+    @Test
     void rejectsMissingPublicKeyChecksum() {
         when(client.getPublicKey(KEY_VERSION)).thenReturn(validPublicKey().toBuilder()
                 .clearPemCrc32C()
@@ -141,6 +178,30 @@ class GoogleKmsSignerTest {
     }
 
     @Test
+    void rejectsSoftwareBackedSignature() {
+        when(client.asymmetricSign(any(AsymmetricSignRequest.class))).thenReturn(validSignResponse().toBuilder()
+                .setProtectionLevel(ProtectionLevel.SOFTWARE)
+                .build());
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> signer.sign(KEY_VERSION, TRANSACTION_HASH));
+
+        assertEquals("KMS signature protection level must be HSM", error.getMessage());
+    }
+
+    @Test
+    void rejectsSignatureWithoutDeclaredProtectionLevel() {
+        when(client.asymmetricSign(any(AsymmetricSignRequest.class))).thenReturn(validSignResponse().toBuilder()
+                .clearProtectionLevel()
+                .build());
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> signer.sign(KEY_VERSION, TRANSACTION_HASH));
+
+        assertEquals("KMS signature protection level must be HSM", error.getMessage());
+    }
+
+    @Test
     void rejectsMissingSignatureChecksum() {
         when(client.asymmetricSign(any(AsymmetricSignRequest.class))).thenReturn(validSignResponse().toBuilder()
                 .clearSignatureCrc32C()
@@ -176,6 +237,7 @@ class GoogleKmsSignerTest {
         return PublicKey.newBuilder()
                 .setName(KEY_VERSION)
                 .setAlgorithm(CryptoKeyVersionAlgorithm.EC_SIGN_SECP256K1_SHA256)
+                .setProtectionLevel(ProtectionLevel.HSM)
                 .setPem(PUBLIC_KEY_PEM)
                 .setPemCrc32C(Int64Value.of(
                         GoogleKmsSigner.crc32c(PUBLIC_KEY_PEM.getBytes(StandardCharsets.UTF_8))))
@@ -188,6 +250,7 @@ class GoogleKmsSignerTest {
                 .setSignature(ByteString.copyFrom(DER_SIGNATURE))
                 .setSignatureCrc32C(Int64Value.of(GoogleKmsSigner.crc32c(DER_SIGNATURE)))
                 .setVerifiedDigestCrc32C(true)
+                .setProtectionLevel(ProtectionLevel.HSM)
                 .build();
     }
 
