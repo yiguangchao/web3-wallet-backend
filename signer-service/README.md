@@ -11,6 +11,7 @@ This service is a separate security boundary. It accepts only mTLS-authenticated
 - An idempotency reservation is committed before KMS is called. An interrupted request stays `PROCESSING` and is not signed again automatically.
 - KMS public-key and signing responses must report the `HSM` protection level; software-backed keys fail closed.
 - KMS public keys, request digests and returned signatures are bound to the requested key version and verified with CRC32C before use.
+- Readiness includes MySQL plus a cached startup/periodic KMS preflight. It stays down if no active key exists or any address/integrity check fails.
 - Native recipients and decoded ERC-20 recipients must be allowlisted. Arbitrary contract calls are rejected.
 - Native and token limits are reserved with database row locks.
 - Signing starts emergency-stopped.
@@ -27,6 +28,8 @@ Apply `deploy/terraform/google-kms.tf` through an independently approved infrast
 - `SIGNER_WALLET_TOKEN_SHA256`, `SIGNER_ADMIN_TOKEN_SHA256` (distinct tokens)
 - `SIGNER_TLS_KEY_STORE`, `SIGNER_TLS_KEY_STORE_PASSWORD`
 - `SIGNER_TLS_TRUST_STORE`, `SIGNER_TLS_TRUST_STORE_PASSWORD`
+
+`SIGNER_KMS_PREFLIGHT_FIXED_DELAY` controls the cached KMS readiness refresh interval in milliseconds and defaults to 60 seconds. Health responses expose only a stable reason code, never the KMS exception or resource name.
 
 The MySQL identity should only access the signer schema. The wallet backend must have no access to this schema or Google KMS.
 
