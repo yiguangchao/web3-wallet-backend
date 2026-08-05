@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.actuate.health.Status;
@@ -20,13 +22,15 @@ class KmsKeyHealthIndicatorTest {
 
     private JdbcTemplate jdbc;
     private GoogleKmsSigner kms;
+    private MeterRegistry registry;
     private KmsKeyHealthIndicator indicator;
 
     @BeforeEach
     void setUp() {
         jdbc = mock(JdbcTemplate.class);
         kms = mock(GoogleKmsSigner.class);
-        indicator = new KmsKeyHealthIndicator(jdbc, kms);
+        registry = new SimpleMeterRegistry();
+        indicator = new KmsKeyHealthIndicator(jdbc, kms, registry);
     }
 
     @Test
@@ -44,6 +48,8 @@ class KmsKeyHealthIndicatorTest {
 
         assertEquals(Status.UP, indicator.health().getStatus());
         assertEquals(1, indicator.health().getDetails().get("activeKeyCount"));
+        assertEquals(1D, gauge("wallet.signer.kms.preflight.up"));
+        assertEquals(0D, gauge("wallet.signer.kms.preflight.consecutive_failures"));
         verify(kms).publicAddress(KEY_VERSION);
     }
 
@@ -78,6 +84,22 @@ class KmsKeyHealthIndicatorTest {
         assertEquals(1, indicator.health().getDetails().size());
     }
 
+    @Test
+    void resetsConsecutiveFailureGaugeAfterSuccessfulPreflight() {
+        activeKeys();
+        indicator.refresh();
+        activeKeys(new KmsKeyHealthIndicator.ActiveKey(KEY_VERSION, EXPECTED_ADDRESS));
+        when(kms.publicAddress(KEY_VERSION)).thenReturn(EXPECTED_ADDRESS);
+
+        indicator.refresh();
+
+        assertEquals(Status.UP, indicator.health().getStatus());
+        assertEquals(1D, gauge("wallet.signer.kms.preflight.up"));
+        assertEquals(0D, gauge("wallet.signer.kms.preflight.consecutive_failures"));
+        assertEquals(1D, registry.get("wallet.signer.kms.preflight.failures")
+                .tag("reason", "no-active-key").counter().count());
+    }
+
     @SafeVarargs
     private void activeKeys(KmsKeyHealthIndicator.ActiveKey... keys) {
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers
@@ -87,5 +109,13 @@ class KmsKeyHealthIndicatorTest {
     private void assertDownWithReason(String reason) {
         assertEquals(Status.DOWN, indicator.health().getStatus());
         assertEquals(reason, indicator.health().getDetails().get("reason"));
+        assertEquals(0D, gauge("wallet.signer.kms.preflight.up"));
+        assertEquals(1D, gauge("wallet.signer.kms.preflight.consecutive_failures"));
+        assertEquals(1D, registry.get("wallet.signer.kms.preflight.failures")
+                .tag("reason", reason).counter().count());
+    }
+
+    private double gauge(String name) {
+        return registry.get(name).gauge().value();
     }
 }

@@ -31,6 +31,8 @@ Apply `deploy/terraform/google-kms.tf` through an independently approved infrast
 
 `SIGNER_KMS_PREFLIGHT_FIXED_DELAY` controls the cached KMS readiness refresh interval in milliseconds and defaults to 60 seconds. Health responses expose only a stable reason code, never the KMS exception or resource name.
 
+The Prometheus endpoint exposes `wallet_signer_kms_preflight_up`, `wallet_signer_kms_preflight_consecutive_failures`, and `wallet_signer_kms_preflight_failures_total{reason=...}`. Alert when `up` is `0` or when the consecutive failure gauge is non-zero for longer than the refresh interval.
+
 The MySQL identity should only access the signer schema. The wallet backend must have no access to this schema or Google KMS.
 
 ## Wallet client mTLS
