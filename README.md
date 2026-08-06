@@ -270,7 +270,19 @@ PENDING_REVIEW(0) -> REJECTED(5)
 任意非终态发生不确定异常 -> MANUAL_REVIEW(4)
 ```
 
-`CONFIRMED`、`REJECTED` 和 `MANUAL_REVIEW` 当前都是终态。每次迁移使用 `WHERE id = ? AND status = ?` 条件更新并严格校验影响行数，未声明的状态边直接拒绝；成功迁移后记录操作人、角色、IP、前后状态和备注。审核拒绝只允许从 `PENDING_REVIEW` 发生，并与冻结资金释放处于同一事务；进入 `MANUAL_REVIEW` 时不自动释放资金。
+`CONFIRMED` 和 `REJECTED` 是终态。`MANUAL_REVIEW` 会继续冻结资金，只能通过 V15 的双管理员人工处置流程进入 `CONFIRMED` 或 `REJECTED`。每次迁移使用 `WHERE id = ? AND status = ?` 条件更新并严格校验影响行数，未声明的状态边直接拒绝；成功迁移后记录操作人、角色、IP、前后状态和备注。审核拒绝只允许从 `PENDING_REVIEW` 发生，并与冻结资金释放处于同一事务。
+
+人工处置要求一名管理员提交带证据的 `CONFIRM` 或 `RELEASE` 提案，由另一名管理员执行：
+
+- `CONFIRM` 只接受订单原始签名交易，且 Receipt 必须成功、位于规范链并达到币种确认数；
+- `RELEASE` 只允许 RPC 无法识别该交易且原 Nonce 未被消耗时释放冻结资金；
+- 提案、执行人、证据和资金状态迁移全部记录审计日志。
+
+```text
+POST /api/admin/withdraw/manual-reviews/orders/{orderId}/proposals
+POST /api/admin/withdraw/manual-reviews/proposals/{resolutionId}/execute
+GET  /api/admin/withdraw/manual-reviews/proposals
+```
 
 V11/V12 已将 Nonce、签名和广播拆分。接口调用只分配 Nonce、调用签名器并在同一数据库事务中写入 `withdraw_chain_transaction` 与 `transaction_outbox`，随后返回本地计算的 `txHash`；后台广播器再投递已经固化的 `raw_transaction`。成功回执先把订单推进到 `MINED`，下一次同步才在同一事务内扣减冻结资金并推进到 `CONFIRMED`，避免“链上已打包”和“内部账本已最终结算”混成一个状态。
 

@@ -3,6 +3,7 @@ package com.example.wallet.module.withdraw;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.wallet.module.withdraw.controller.WithdrawController;
+import com.example.wallet.module.withdraw.controller.WithdrawManualReviewAdminController;
 import com.example.wallet.module.withdraw.dto.WithdrawAuditRequest;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,14 @@ class WithdrawPermissionTest {
         assertPermission("broadcast", "hasAnyRole('OPERATOR', 'ADMIN')", Long.class);
         assertPermission("sync", "hasAnyRole('OPERATOR', 'ADMIN')", Long.class);
         assertPermission("listAuditLogs", "hasRole('ADMIN')", Long.class);
+    }
+
+    @Test
+    void shouldRestrictManualReviewResolutionToAdministrators() {
+        assertThat(WithdrawManualReviewAdminController.class.getAnnotation(PreAuthorize.class))
+                .isNotNull()
+                .extracting(PreAuthorize::value)
+                .isEqualTo("hasRole('ADMIN')");
     }
 
     private void assertPermission(String methodName, String expression, Class<?>... parameterTypes)
