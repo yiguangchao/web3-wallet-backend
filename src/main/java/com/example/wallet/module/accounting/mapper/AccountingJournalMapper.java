@@ -15,6 +15,9 @@ public interface AccountingJournalMapper extends BaseMapper<AccountingJournal> {
     AccountingJournal selectByBusiness(@Param("businessType") String businessType,
                                        @Param("businessId") Long businessId);
 
+    @Select("SELECT * FROM accounting_journal WHERE source_flow_id = #{sourceFlowId}")
+    AccountingJournal selectBySourceFlowId(@Param("sourceFlowId") Long sourceFlowId);
+
     @Select("""
             SELECT COUNT(*) FROM (
                 SELECT journal.id

@@ -33,6 +33,7 @@ Web3 Java 后端/区块链托管钱包服务。当前版本基于 Spring Boot + 
 - `module.user`: 注册、登录、用户数据
 - `module.wallet`: 托管充值地址分配、地址生命周期、充值归集、ETH/ERC-20 余额查询
 - `module.asset`: 服务端资产注册表、资产账户、资产流水
+- `module.accounting`: V16 不可变平衡运营子账本与异常取证查询
 - `module.chain`: 当前区块、交易回执查询
 - `module.deposit`: ETH/ERC-20 扫块、确认入账、链重组处理
 - `module.withdraw`: 提现申请、审核、签名广播、状态同步
@@ -383,6 +384,25 @@ Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需
 - `wallet.chain.reorganizations`、`wallet.monitoring.collection.errors`。
 
 生产升级前执行 `docs/sql/V14__reconciliation_risk_preflight.sql`。完成迁移后应先配置对账地址和风险策略、录入用户白名单，再开启 `WALLET_RECONCILIATION_ENABLED`。
+
+## V16 平衡运营子账本
+
+每条 `asset_flow` 都由数据库触发器生成一个不可变 `accounting_journal` 和三条有符号分录：
+
+```text
+USER_AVAILABLE + USER_FROZEN + SYSTEM_CLEARING = 0
+total_debit = total_credit
+```
+
+充值会增加用户可用余额并减少系统清算头寸；提现冻结只在用户可用与冻结科目之间搬移；提现确认会减少用户冻结余额并增加系统清算头寸。Journal 与 Entry 禁止更新、删除，且 `(source_flow_id)` 唯一，避免同一资金流水重复记账。这里是面向钱包余额变化的运营子账本，不替代法定财务总账。
+
+管理员可以按业务标识或精确的资金流水 ID 取证，并查询不平衡 Journal 数量：
+
+```text
+GET /api/admin/accounting/journals/{businessType}/{businessId}
+GET /api/admin/accounting/journals/by-flow/{sourceFlowId}
+GET /api/admin/accounting/imbalances/count
+```
 
 ## 后续计划
 

@@ -23,6 +23,15 @@ public class AccountingQueryService {
 
     public AccountingJournalView getByBusiness(String businessType, Long businessId) {
         AccountingJournal journal = journalMapper.selectByBusiness(businessType, businessId);
+        return loadJournal(journal);
+    }
+
+    public AccountingJournalView getBySourceFlowId(Long sourceFlowId) {
+        AccountingJournal journal = journalMapper.selectBySourceFlowId(sourceFlowId);
+        return loadJournal(journal);
+    }
+
+    private AccountingJournalView loadJournal(AccountingJournal journal) {
         if (journal == null) {
             throw new BizException("accounting journal not found");
         }

@@ -25,6 +25,12 @@ public class AccountingAdminController {
         return Result.success(accountingQueryService.getByBusiness(businessType, businessId));
     }
 
+    @GetMapping("/journals/by-flow/{sourceFlowId}")
+    public Result<AccountingJournalView> journalBySourceFlow(
+            @PathVariable Long sourceFlowId) {
+        return Result.success(accountingQueryService.getBySourceFlowId(sourceFlowId));
+    }
+
     @GetMapping("/imbalances/count")
     public Result<Long> imbalanceCount() {
         return Result.success(accountingQueryService.countImbalances());
