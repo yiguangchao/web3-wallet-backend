@@ -19,6 +19,8 @@ final class SignerMtls {
         if (!StringUtils.hasText(properties.getClientKeyStore())
                 && !StringUtils.hasText(properties.getTrustStore())) return builder;
         try {
+            requirePositive(properties.getRemoteConnectTimeout(), "signer connect timeout");
+            requirePositive(properties.getRemoteReadTimeout(), "signer read timeout");
             require(properties.getClientKeyStore(), "signer client key store");
             require(properties.getClientKeyStorePassword(), "signer client key store password");
             require(properties.getTrustStore(), "signer trust store");
@@ -32,8 +34,11 @@ final class SignerMtls {
             SSLContext context = SSLContext.getInstance("TLSv1.3");
             context.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
             HttpClient client = HttpClient.newBuilder().sslContext(context)
+                    .connectTimeout(properties.getRemoteConnectTimeout())
                     .followRedirects(HttpClient.Redirect.NEVER).build();
-            return builder.requestFactory(new JdkClientHttpRequestFactory(client));
+            JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(client);
+            requestFactory.setReadTimeout(properties.getRemoteReadTimeout());
+            return builder.requestFactory(requestFactory);
         } catch (Exception ex) {
             throw new IllegalStateException("cannot configure signer mTLS", ex);
         }
@@ -48,5 +53,11 @@ final class SignerMtls {
     }
     private static void require(String value, String name) {
         if (!StringUtils.hasText(value)) throw new IllegalStateException(name + " is required");
+    }
+
+    private static void requirePositive(java.time.Duration value, String name) {
+        if (value == null || value.isZero() || value.isNegative()) {
+            throw new IllegalStateException(name + " must be positive");
+        }
     }
 }

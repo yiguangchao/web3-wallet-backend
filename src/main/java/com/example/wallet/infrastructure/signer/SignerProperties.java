@@ -1,5 +1,6 @@
 package com.example.wallet.infrastructure.signer;
 
+import java.time.Duration;
 import lombok.Data;
 import lombok.ToString;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -16,6 +17,9 @@ public class SignerProperties {
     private String localPrivateKey;
     private String remoteUrl;
     private String remotePath = "/api/v1/sign/ethereum-transaction";
+    private String remoteHealthPath = "/actuator/health/readiness";
+    private Duration remoteConnectTimeout = Duration.ofSeconds(3);
+    private Duration remoteReadTimeout = Duration.ofSeconds(10);
     @ToString.Exclude
     private String remoteApiToken;
     private String clientKeyStore;

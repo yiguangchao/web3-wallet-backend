@@ -375,7 +375,7 @@ V14 默认策略要求提现地址白名单，并为 Sepolia ETH 设置用户每
 
 登录与业务 API 使用 Redis 原子计数限流，默认登录每 IP 每分钟 `10` 次、其他 API 每用户或 IP 每分钟 `120` 次。Redis 异常默认 fail-closed 返回 `503`，超过限额返回 `429`。可通过 `WALLET_LOGIN_RATE_LIMIT`、`WALLET_API_RATE_LIMIT`、`WALLET_API_RATE_LIMIT_WINDOW_SECONDS` 和 `WALLET_API_RATE_LIMIT_FAIL_OPEN` 调整。
 
-Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需要 `ADMIN` 权限，生产环境还应在网络层限制监控端点。当前指标包括：
+Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需要 `ADMIN` 权限，生产环境还应在网络层限制监控端点。`prod` Profile 的 readiness 除数据库和 Redis 外，还会通过同一套 mTLS 客户端检查 signer-service readiness；signer 不可用或 KMS 预检失败时，钱包实例不会进入 Ready。可通过 `WALLET_SIGNER_REMOTE_HEALTH_PATH`、`WALLET_SIGNER_REMOTE_CONNECT_TIMEOUT` 和 `WALLET_SIGNER_REMOTE_READ_TIMEOUT` 配置探测路径与超时。当前指标包括：
 
 - `wallet.scan.block.lag`、`wallet.rpc.requests`、`wallet.rpc.errors`；
 - `wallet.outbox.backlog`、`wallet.withdraw.pending`、`wallet.nonce.gap`；

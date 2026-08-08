@@ -64,6 +64,9 @@ wallet:
     local-private-key: ${WALLET_SIGNER_LOCAL_PRIVATE_KEY:}
     remote-url: ${WALLET_SIGNER_REMOTE_URL:}
     remote-path: ${WALLET_SIGNER_REMOTE_PATH:/api/v1/sign/ethereum-transaction}
+    remote-health-path: ${WALLET_SIGNER_REMOTE_HEALTH_PATH:/actuator/health/readiness}
+    remote-connect-timeout: ${WALLET_SIGNER_REMOTE_CONNECT_TIMEOUT:3s}
+    remote-read-timeout: ${WALLET_SIGNER_REMOTE_READ_TIMEOUT:10s}
     remote-api-token: ${WALLET_SIGNER_REMOTE_API_TOKEN:}
     client-key-store: ${WALLET_SIGNER_CLIENT_KEY_STORE:}
     client-key-store-password: ${WALLET_SIGNER_CLIENT_KEY_STORE_PASSWORD:}

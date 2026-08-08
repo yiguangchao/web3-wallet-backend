@@ -36,6 +36,7 @@ class DeploymentConfigurationTest {
         String production = Files.readString(Path.of("src/main/resources/application-prod.yml"));
 
         assertThat(production).contains("remote-url: ${WALLET_SIGNER_REMOTE_URL}");
+        assertThat(production).contains("include: readinessState,db,redis,remoteSigner");
         assertThat(production).contains("secret: ${JWT_SECRET}");
         assertThat(production).contains("enabled: ${SWAGGER_ENABLED:false}");
         assertThat(production).doesNotContain("local-private-key");
