@@ -9,6 +9,7 @@ This service is a separate security boundary. It accepts only mTLS-authenticated
 - A SHA-256 hashed service token is checked in addition to mTLS.
 - Every request requires a timestamp and idempotency key.
 - An idempotency reservation is committed before KMS is called. An interrupted request stays `PROCESSING` and is not signed again automatically.
+- A stuck `PROCESSING` request can only be terminally marked `FAILED` through a two-person, audit-chained admin workflow; it is never automatically re-signed.
 - KMS public-key and signing responses must report the `HSM` protection level; software-backed keys fail closed.
 - KMS public keys, request digests and returned signatures are bound to the requested key version and verified with CRC32C before use.
 - Readiness includes MySQL plus a cached startup/periodic KMS preflight. It stays down if no active key exists or any address/integrity check fails.
@@ -34,6 +35,13 @@ Apply `deploy/terraform/google-kms.tf` through an independently approved infrast
 The Prometheus endpoint exposes `wallet_signer_kms_preflight_up`, `wallet_signer_kms_preflight_consecutive_failures`, and `wallet_signer_kms_preflight_failures_total{reason=...}`. Alert when `up` is `0` or when the consecutive failure gauge is non-zero for longer than the refresh interval.
 
 The MySQL identity should only access the signer schema. The wallet backend must have no access to this schema or Google KMS.
+
+## Stuck signing-request procedure
+
+1. Preserve KMS, RPC and wallet-service evidence for the idempotency key; do not resend the signing request.
+2. The first administrator submits `POST /api/v1/admin/signing-resolutions` with the idempotency key and a detailed reason.
+3. A different administrator approves `POST /api/v1/admin/signing-resolutions/{resolutionId}/approve`.
+4. The signer records an immutable audit event and changes only the reservation status to `FAILED`. A new business request must use a new idempotency key after independent investigation.
 
 ## Wallet client mTLS
 
