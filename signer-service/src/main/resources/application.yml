@@ -25,6 +25,8 @@ signer:
   wallet-subject-pattern: ${SIGNER_WALLET_SUBJECT_PATTERN:^CN=web3-wallet-backend(?:,.*)?$}
   admin-subject-pattern: ${SIGNER_ADMIN_SUBJECT_PATTERN:^CN=wallet-key-admin-[^,]+(?:,.*)?$}
   request-clock-skew-seconds: ${SIGNER_REQUEST_CLOCK_SKEW_SECONDS:60}
+  processing-alert-seconds: ${SIGNER_PROCESSING_ALERT_SECONDS:300}
+  processing-monitor-fixed-delay: ${SIGNER_PROCESSING_MONITOR_FIXED_DELAY:60000}
   kms-preflight-fixed-delay: ${SIGNER_KMS_PREFLIGHT_FIXED_DELAY:60000}
   production: ${SIGNER_PRODUCTION:true}
 management:

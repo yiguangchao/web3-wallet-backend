@@ -11,6 +11,7 @@ public class SignerProperties {
     private String walletSubjectPattern = "^CN=web3-wallet-backend(?:,.*)?$";
     private String adminSubjectPattern = "^CN=wallet-key-admin-[^,]+(?:,.*)?$";
     private long requestClockSkewSeconds = 60;
+    private long processingAlertSeconds = 300;
     private boolean production = true;
     public String getWalletServiceTokenHash() { return walletServiceTokenHash; }
     public void setWalletServiceTokenHash(String value) { this.walletServiceTokenHash = value; }
@@ -22,6 +23,8 @@ public class SignerProperties {
     public void setAdminSubjectPattern(String value) { this.adminSubjectPattern = value; }
     public long getRequestClockSkewSeconds() { return requestClockSkewSeconds; }
     public void setRequestClockSkewSeconds(long value) { this.requestClockSkewSeconds = value; }
+    public long getProcessingAlertSeconds() { return processingAlertSeconds; }
+    public void setProcessingAlertSeconds(long value) { this.processingAlertSeconds = value; }
     public boolean isProduction() { return production; }
     public void setProduction(boolean value) { this.production = value; }
 }
