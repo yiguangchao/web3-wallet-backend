@@ -5,12 +5,41 @@ groups:
         expr: up{job="wallet-signer"} == 0
         for: 1m
         labels: { severity: critical }
+        annotations:
+          summary: Wallet signer is unavailable
+          runbook_url: signer-service/deploy/monitoring/incident-response.md#signer-unavailable
       - alert: WalletSignerHttpErrors
         expr: rate(http_server_requests_seconds_count{job="wallet-signer",status=~"5.."}[5m]) > 0
         for: 2m
         labels: { severity: critical }
+        annotations:
+          summary: Wallet signer is returning server errors
+          runbook_url: signer-service/deploy/monitoring/incident-response.md#signer-http-errors
       - alert: WalletSignerLatency
         expr: histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{job="wallet-signer",uri="/api/v1/sign/ethereum-transaction"}[5m])) > 2
         for: 5m
         labels: { severity: warning }
-
+        annotations:
+          summary: Wallet signer p99 latency is above two seconds
+          runbook_url: signer-service/deploy/monitoring/incident-response.md#signer-latency
+      - alert: WalletSignerKmsPreflightDown
+        expr: wallet_signer_kms_preflight_up != 1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: Wallet signer KMS key preflight is unavailable
+          runbook_url: signer-service/deploy/monitoring/incident-response.md#kms-preflight-failure
+      - alert: WalletSignerStaleSigningRequest
+        expr: wallet_signer_idempotency_stale > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: Wallet signer has a stale signing request requiring investigation
+          runbook_url: signer-service/deploy/monitoring/incident-response.md#stale-signing-request
+      - alert: WalletSignerStaleSigningRequestMonitorDown
+        expr: wallet_signer_idempotency_stale_collection_up != 1
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: Wallet signer stale-request monitoring is unavailable
+          runbook_url: signer-service/deploy/monitoring/incident-response.md#stale-request-monitoring-failure

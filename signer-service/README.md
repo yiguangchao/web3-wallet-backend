@@ -36,6 +36,8 @@ The Prometheus endpoint exposes `wallet_signer_kms_preflight_up`, `wallet_signer
 
 `GET /api/v1/admin/signing-resolutions/stale` lists at most 100 `PROCESSING` requests whose `updated_at` exceeds `SIGNER_PROCESSING_ALERT_SECONDS` (default 300 seconds). It is read-only and requires the key-admin mTLS identity. Prometheus exposes `wallet_signer_idempotency_stale`, `wallet_signer_idempotency_stale_collection_up`, and `wallet_signer_idempotency_stale_collection_errors_total`; alert when the stale count is positive or collection is down. Use the dual-control resolution procedure for every returned request.
 
+Deploy `deploy/monitoring/prometheus-alerts.yml` through the monitored-infrastructure pipeline. The signer alert rules and response steps are documented in `deploy/monitoring/incident-response.md`.
+
 The MySQL identity should only access the signer schema. The wallet backend must have no access to this schema or Google KMS.
 
 ## Stuck signing-request procedure
