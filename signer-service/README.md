@@ -13,7 +13,7 @@ This service is a separate security boundary. It accepts only mTLS-authenticated
 - KMS public-key and signing responses must report the `HSM` protection level; software-backed keys fail closed.
 - KMS public keys, request digests and returned signatures are bound to the requested key version and verified with CRC32C before use.
 - Readiness includes MySQL plus a cached startup/periodic KMS preflight. It stays down if no active key exists or any address/integrity check fails.
-- Native recipients and decoded ERC-20 recipients must be allowlisted. Arbitrary contract calls are rejected.
+- Native recipients and decoded ERC-20 recipients must be allowlisted. Recipient allowlist additions and disablements require two-person, audit-chained approval. Arbitrary contract calls are rejected.
 - Native and token limits are reserved with database row locks.
 - Signing starts emergency-stopped.
 - Key rotation, activation, disablement and resume require two different certificate identities. Emergency stop is immediate.
@@ -54,10 +54,10 @@ Inject the client PKCS12 key/trust stores into the wallet workload and set JVM T
 ## Bootstrap
 
 1. Deploy with signing stopped.
-2. Insert withdrawal recipient and token policies through a separately audited database bootstrap/migration process.
-3. Propose a `ROTATE` key change containing the full KMS version name, derived Ethereum address, chain and native limits.
-4. Approve it using a different client certificate identity.
+2. Propose a `ROTATE` key change containing the full KMS version name, derived Ethereum address, chain and native limits.
+3. Approve it using a different client certificate identity.
+4. Add the first withdrawal recipient through `POST /api/v1/admin/address-policy-changes`, then approve it with a different key-admin identity. Token policies remain bootstrap-managed in this version.
 5. Verify a test signature and recovered sender on a non-production key.
 6. Propose `RESUME`; approve with another identity.
 
-Changing policies directly is intentionally not exposed as a public API in this version. Treat policy migration as a controlled, reviewed release until a dedicated dual-control policy workflow is implemented.
+Token policy limits are intentionally not exposed as a public API in this version. Treat token-policy migration as a controlled, reviewed release until a dedicated dual-control token-policy workflow is implemented.
