@@ -12,6 +12,24 @@ permissions:
 jobs:
   signer-service-test:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        command: --log-bin-trust-function-creators=1
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wallet_signer_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      SIGNER_TEST_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/wallet_signer_test?useSSL=false&allowPublicKeyRetrieval=true
+      SIGNER_TEST_MYSQL_USERNAME: root
+      SIGNER_TEST_MYSQL_PASSWORD: root
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
