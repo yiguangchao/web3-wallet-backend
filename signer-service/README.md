@@ -65,4 +65,6 @@ Inject the client PKCS12 key/trust stores into the wallet workload and set JVM T
 
 `POST /api/v1/admin/token-policy-changes` accepts `ADD`, `UPDATE_LIMITS`, and `DISABLE`. `ADD` creates or re-enables a token policy and replaces its limits. `UPDATE_LIMITS` and `DISABLE` require an active existing policy. A different key-admin certificate identity must call `POST /api/v1/admin/token-policy-changes/{changeId}/approve` before the policy takes effect.
 
-Limits use the token's raw integer unit, not a decimal display amount. Both limits must be positive, the daily limit must be at least the single-transfer limit, and `DISABLE` must omit both limit fields. Only one pending change per key, chain and token is allowed. Every proposal and approval is written to the signer audit chain.
+Limits use the token's raw integer unit, not a decimal display amount. Both limits must be positive, the daily limit must be at least the single-transfer limit, and `DISABLE` must omit both limit fields. Only one pending change per key, chain and token is allowed. Every proposal, approval and cancellation is written to the signer audit chain.
+
+Administrators can query the oldest 100 pending proposals through `GET /api/v1/admin/token-policy-changes/pending`. The original proposer may withdraw a pending proposal through `POST /api/v1/admin/token-policy-changes/{changeId}/cancel`; another administrator cannot cancel it. Cancellation takes the same database row lock used by approval, releases the pending uniqueness slot, and appends `TOKEN_POLICY_CHANGE_CANCELLED` to the audit chain.

@@ -12,14 +12,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.wallet.signer.api.TokenPolicyChangeRequest;
+import com.example.wallet.signer.api.TokenPolicyChangeView;
 import java.math.BigInteger;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ResultSetExtractor;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -58,6 +62,19 @@ class TokenPolicyChangeServiceTest {
         assertThat(changeId).isEqualTo(42L);
         verify(audit).append("TOKEN_POLICY_CHANGE_PROPOSED", "CN=wallet-key-admin-proposer", "42",
                 detail("ADD", SINGLE_LIMIT, DAILY_LIMIT));
+    }
+
+    @Test
+    void listsOldestPendingChangesForAdminReview() {
+        LocalDateTime proposedAt = LocalDateTime.of(2026, 8, 16, 9, 30);
+        TokenPolicyChangeView view = new TokenPolicyChangeView(42L, KEY_ID, CHAIN_ID, TOKEN,
+                "ADD", SINGLE_LIMIT, DAILY_LIMIT, REASON,
+                "CN=wallet-key-admin-proposer", proposedAt);
+        when(jdbc.query(org.mockito.ArgumentMatchers.startsWith("SELECT id,key_id"),
+                org.mockito.ArgumentMatchers.<RowMapper<TokenPolicyChangeView>>any()))
+                .thenReturn(List.of(view));
+
+        assertThat(service.pending()).containsExactly(view);
     }
 
     @Test
@@ -148,6 +165,36 @@ class TokenPolicyChangeServiceTest {
         auditDetail.put("proposedBy", "CN=wallet-key-admin-proposer");
         verify(audit).append("TOKEN_POLICY_CHANGE_APPROVED", "CN=wallet-key-admin-approver",
                 "42", auditDetail);
+    }
+
+    @Test
+    void proposerCanCancelPendingChange() {
+        pendingChange("CN=wallet-key-admin-proposer", "ADD", SINGLE_LIMIT, DAILY_LIMIT);
+        when(jdbc.update(org.mockito.ArgumentMatchers
+                        .startsWith("UPDATE signer_token_policy_change\nSET status='CANCELLED'"),
+                eq("CN=wallet-key-admin-proposer"), any(), eq(42L),
+                eq("CN=wallet-key-admin-proposer"))).thenReturn(1);
+
+        service.cancel(42L);
+
+        verify(audit).append("TOKEN_POLICY_CHANGE_CANCELLED", "CN=wallet-key-admin-proposer",
+                "42", detail("ADD", SINGLE_LIMIT, DAILY_LIMIT));
+    }
+
+    @Test
+    void anotherAdminCannotCancelProposal() {
+        pendingChange("CN=wallet-key-admin-proposer", "ADD", SINGLE_LIMIT, DAILY_LIMIT);
+        actor("CN=wallet-key-admin-approver");
+
+        assertThatThrownBy(() -> service.cancel(42L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("only the proposer can cancel a token policy change");
+
+        verify(jdbc, never()).update(org.mockito.ArgumentMatchers
+                .startsWith("UPDATE signer_token_policy_change\nSET status='CANCELLED'"),
+                any(), any(), any(), any());
+        verify(audit, never()).append(eq("TOKEN_POLICY_CHANGE_CANCELLED"), anyString(),
+                anyString(), any());
     }
 
     private TokenPolicyChangeRequest request(String action, BigInteger single, BigInteger daily) {

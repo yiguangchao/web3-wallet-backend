@@ -1,8 +1,10 @@
 package com.example.wallet.signer.core;
 
 import com.example.wallet.signer.api.TokenPolicyChangeRequest;
+import com.example.wallet.signer.api.TokenPolicyChangeView;
 import java.math.BigInteger;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.springframework.dao.DuplicateKeyException;
@@ -21,6 +23,22 @@ public class TokenPolicyChangeService {
     public TokenPolicyChangeService(JdbcTemplate jdbc, AuditChainService audit) {
         this.jdbc = jdbc;
         this.audit = audit;
+    }
+
+    @Transactional(readOnly = true)
+    public List<TokenPolicyChangeView> pending() {
+        return jdbc.query("""
+                SELECT id,key_id,chain_id,token_address,action,single_raw_limit,daily_raw_limit,
+                       reason,proposed_by,proposed_at
+                FROM signer_token_policy_change
+                WHERE status='PENDING'
+                ORDER BY proposed_at,id
+                LIMIT 100
+                """, (rs, rowNum) -> new TokenPolicyChangeView(
+                rs.getLong(1), rs.getString(2), rs.getLong(3), rs.getString(4), rs.getString(5),
+                rs.getBigDecimal(6) == null ? null : rs.getBigDecimal(6).toBigIntegerExact(),
+                rs.getBigDecimal(7) == null ? null : rs.getBigDecimal(7).toBigIntegerExact(),
+                rs.getString(8), rs.getString(9), rs.getTimestamp(10).toLocalDateTime()));
     }
 
     @Transactional
@@ -51,16 +69,7 @@ public class TokenPolicyChangeService {
 
     @Transactional
     public void approve(long changeId) {
-        Change change = jdbc.query("""
-                SELECT key_id,chain_id,token_address,action,single_raw_limit,daily_raw_limit,
-                       reason,status,proposed_by
-                FROM signer_token_policy_change WHERE id=? FOR UPDATE
-                """, rs -> rs.next() ? new Change(rs.getString(1), rs.getLong(2), rs.getString(3),
-                        rs.getString(4), rs.getBigDecimal(5) == null ? null
-                                : rs.getBigDecimal(5).toBigIntegerExact(),
-                        rs.getBigDecimal(6) == null ? null
-                                : rs.getBigDecimal(6).toBigIntegerExact(),
-                        rs.getString(7), rs.getString(8), rs.getString(9)) : null, changeId);
+        Change change = pendingChange(changeId);
         if (change == null || !"PENDING".equals(change.status())) {
             throw new IllegalArgumentException("pending token policy change not found");
         }
@@ -83,6 +92,43 @@ public class TokenPolicyChangeService {
                 change.dailyRawLimit(), change.reason());
         detail.put("proposedBy", change.proposedBy());
         audit.append("TOKEN_POLICY_CHANGE_APPROVED", approver, String.valueOf(changeId), detail);
+    }
+
+    @Transactional
+    public void cancel(long changeId) {
+        Change change = pendingChange(changeId);
+        if (change == null || !"PENDING".equals(change.status())) {
+            throw new IllegalArgumentException("pending token policy change not found");
+        }
+        String actor = actor();
+        if (!actor.equals(change.proposedBy())) {
+            throw new IllegalArgumentException("only the proposer can cancel a token policy change");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (jdbc.update("""
+                UPDATE signer_token_policy_change
+                SET status='CANCELLED',cancelled_by=?,cancelled_at=?
+                WHERE id=? AND status='PENDING' AND proposed_by=?
+                """, actor, now, changeId, actor) != 1) {
+            throw new IllegalStateException("token policy change cancellation changed concurrently");
+        }
+        Map<String, Object> detail = auditDetail(change.keyId(), change.chainId(),
+                change.tokenAddress(), change.action(), change.singleRawLimit(),
+                change.dailyRawLimit(), change.reason());
+        audit.append("TOKEN_POLICY_CHANGE_CANCELLED", actor, String.valueOf(changeId), detail);
+    }
+
+    private Change pendingChange(long changeId) {
+        return jdbc.query("""
+                SELECT key_id,chain_id,token_address,action,single_raw_limit,daily_raw_limit,
+                       reason,status,proposed_by
+                FROM signer_token_policy_change WHERE id=? FOR UPDATE
+                """, rs -> rs.next() ? new Change(rs.getString(1), rs.getLong(2), rs.getString(3),
+                rs.getString(4), rs.getBigDecimal(5) == null ? null
+                        : rs.getBigDecimal(5).toBigIntegerExact(),
+                rs.getBigDecimal(6) == null ? null
+                        : rs.getBigDecimal(6).toBigIntegerExact(),
+                rs.getString(7), rs.getString(8), rs.getString(9)) : null, changeId);
     }
 
     private void apply(Change change, LocalDateTime now) {
