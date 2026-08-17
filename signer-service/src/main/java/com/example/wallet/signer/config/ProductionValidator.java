@@ -13,6 +13,9 @@ public class ProductionValidator implements ApplicationRunner {
         this.properties = properties; this.environment = environment;
     }
     @Override public void run(ApplicationArguments args) {
+        require(properties.getTokenPolicyApprovalTtlSeconds() >= 300
+                        && properties.getTokenPolicyApprovalTtlSeconds() <= 604800,
+                "SIGNER_TOKEN_POLICY_APPROVAL_TTL_SECONDS must be between 300 and 604800");
         if (!properties.isProduction()) return;
         require(properties.getWalletServiceTokenHash() != null
                         && properties.getWalletServiceTokenHash().matches("^[0-9a-fA-F]{64}$"),

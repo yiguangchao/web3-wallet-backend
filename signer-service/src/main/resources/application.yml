@@ -27,6 +27,8 @@ signer:
   request-clock-skew-seconds: ${SIGNER_REQUEST_CLOCK_SKEW_SECONDS:60}
   processing-alert-seconds: ${SIGNER_PROCESSING_ALERT_SECONDS:300}
   processing-monitor-fixed-delay: ${SIGNER_PROCESSING_MONITOR_FIXED_DELAY:60000}
+  token-policy-approval-ttl-seconds: ${SIGNER_TOKEN_POLICY_APPROVAL_TTL_SECONDS:86400}
+  token-policy-expiration-fixed-delay: ${SIGNER_TOKEN_POLICY_EXPIRATION_FIXED_DELAY:60000}
   kms-preflight-fixed-delay: ${SIGNER_KMS_PREFLIGHT_FIXED_DELAY:60000}
   production: ${SIGNER_PRODUCTION:true}
 management:

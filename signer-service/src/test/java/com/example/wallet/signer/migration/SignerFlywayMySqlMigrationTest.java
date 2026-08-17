@@ -23,7 +23,7 @@ class SignerFlywayMySqlMigrationTest {
         var result = flyway.migrate();
 
         assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).isEqualTo(5);
+        assertThat(result.migrationsExecuted).isEqualTo(6);
         assertThat(flyway.info().pending()).isEmpty();
     }
 }

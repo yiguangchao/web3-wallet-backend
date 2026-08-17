@@ -13,8 +13,12 @@ import static org.mockito.Mockito.when;
 
 import com.example.wallet.signer.api.TokenPolicyChangeRequest;
 import com.example.wallet.signer.api.TokenPolicyChangeView;
+import com.example.wallet.signer.config.SignerProperties;
 import java.math.BigInteger;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +38,8 @@ class TokenPolicyChangeServiceTest {
     private static final BigInteger SINGLE_LIMIT = new BigInteger("1000000000");
     private static final BigInteger DAILY_LIMIT = new BigInteger("5000000000");
     private static final String REASON = "USDC policy approved for testnet withdrawals";
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 8, 16, 0, 0);
+    private static final LocalDateTime EXPIRES_AT = NOW.plusDays(1);
 
     private JdbcTemplate jdbc;
     private AuditChainService audit;
@@ -43,7 +49,10 @@ class TokenPolicyChangeServiceTest {
     void setUp() {
         jdbc = mock(JdbcTemplate.class);
         audit = mock(AuditChainService.class);
-        service = new TokenPolicyChangeService(jdbc, audit);
+        SignerProperties properties = new SignerProperties();
+        properties.setTokenPolicyApprovalTtlSeconds(86400);
+        Clock clock = Clock.fixed(Instant.parse("2026-08-16T00:00:00Z"), ZoneOffset.UTC);
+        service = new TokenPolicyChangeService(jdbc, audit, properties, clock);
         actor("CN=wallet-key-admin-proposer");
     }
 
@@ -69,7 +78,7 @@ class TokenPolicyChangeServiceTest {
         LocalDateTime proposedAt = LocalDateTime.of(2026, 8, 16, 9, 30);
         TokenPolicyChangeView view = new TokenPolicyChangeView(42L, KEY_ID, CHAIN_ID, TOKEN,
                 "ADD", SINGLE_LIMIT, DAILY_LIMIT, REASON,
-                "CN=wallet-key-admin-proposer", proposedAt);
+                "CN=wallet-key-admin-proposer", proposedAt, EXPIRES_AT);
         when(jdbc.query(org.mockito.ArgumentMatchers.startsWith("SELECT id,key_id"),
                 org.mockito.ArgumentMatchers.<RowMapper<TokenPolicyChangeView>>any()))
                 .thenReturn(List.of(view));
@@ -115,7 +124,7 @@ class TokenPolicyChangeServiceTest {
         when(jdbc.update(org.mockito.ArgumentMatchers
                         .startsWith("UPDATE signer_token_policy_change"),
                 eq("CN=wallet-key-admin-approver"), any(), eq(42L),
-                eq("CN=wallet-key-admin-approver"))).thenReturn(1);
+                eq("CN=wallet-key-admin-approver"), eq(NOW))).thenReturn(1);
 
         service.approve(42L);
 
@@ -157,7 +166,7 @@ class TokenPolicyChangeServiceTest {
         when(jdbc.update(org.mockito.ArgumentMatchers
                         .startsWith("UPDATE signer_token_policy_change"),
                 eq("CN=wallet-key-admin-approver"), any(), eq(42L),
-                eq("CN=wallet-key-admin-approver"))).thenReturn(1);
+                eq("CN=wallet-key-admin-approver"), eq(NOW))).thenReturn(1);
 
         service.approve(42L);
 
@@ -179,6 +188,46 @@ class TokenPolicyChangeServiceTest {
 
         verify(audit).append("TOKEN_POLICY_CHANGE_CANCELLED", "CN=wallet-key-admin-proposer",
                 "42", detail("ADD", SINGLE_LIMIT, DAILY_LIMIT));
+    }
+
+    @Test
+    void rejectsApprovalAfterStoredDeadline() {
+        pendingChange("CN=wallet-key-admin-proposer", "ADD", SINGLE_LIMIT, DAILY_LIMIT,
+                NOW.minusSeconds(1));
+        actor("CN=wallet-key-admin-approver");
+
+        assertThatThrownBy(() -> service.approve(42L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("token policy change approval has expired");
+
+        verify(jdbc, never()).update(org.mockito.ArgumentMatchers
+                .startsWith("INSERT INTO signer_token_policy"), any(), any(), any(), any(), any(), any());
+        verify(audit, never()).append(eq("TOKEN_POLICY_CHANGE_APPROVED"), anyString(),
+                anyString(), any());
+    }
+
+    @Test
+    void expiresDueChangesAndAppendsAuditEvents() {
+        TokenPolicyChangeService.ExpiringChange change =
+                new TokenPolicyChangeService.ExpiringChange(42L, KEY_ID, CHAIN_ID, TOKEN, "ADD",
+                        SINGLE_LIMIT, DAILY_LIMIT, REASON, "CN=wallet-key-admin-proposer",
+                        NOW.minusSeconds(1));
+        when(jdbc.query(org.mockito.ArgumentMatchers.argThat(
+                        sql -> sql.contains("FOR UPDATE SKIP LOCKED")),
+                org.mockito.ArgumentMatchers
+                        .<RowMapper<TokenPolicyChangeService.ExpiringChange>>any(), eq(NOW)))
+                .thenReturn(List.of(change));
+        when(jdbc.update(org.mockito.ArgumentMatchers
+                        .startsWith("UPDATE signer_token_policy_change SET status='EXPIRED'"),
+                eq(NOW), eq(42L), eq(NOW))).thenReturn(1);
+
+        assertThat(service.expireDue()).isEqualTo(1);
+
+        Map<String, Object> auditDetail = detail("ADD", SINGLE_LIMIT, DAILY_LIMIT,
+                NOW.minusSeconds(1));
+        auditDetail.put("proposedBy", "CN=wallet-key-admin-proposer");
+        auditDetail.put("expiredAt", NOW);
+        verify(audit).append("TOKEN_POLICY_CHANGE_EXPIRED", "SYSTEM", "42", auditDetail);
     }
 
     @Test
@@ -207,13 +256,24 @@ class TokenPolicyChangeServiceTest {
     }
 
     private void pendingChange(String proposer, String action, BigInteger single, BigInteger daily) {
+        pendingChange(proposer, action, single, daily, EXPIRES_AT);
+    }
+
+    private void pendingChange(String proposer, String action, BigInteger single, BigInteger daily,
+                               LocalDateTime expiresAt) {
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers
                 .<ResultSetExtractor<TokenPolicyChangeService.Change>>any(), anyLong()))
                 .thenReturn(new TokenPolicyChangeService.Change(
-                        KEY_ID, CHAIN_ID, TOKEN, action, single, daily, REASON, "PENDING", proposer));
+                        KEY_ID, CHAIN_ID, TOKEN, action, single, daily, REASON, "PENDING", proposer,
+                        expiresAt));
     }
 
     private Map<String, Object> detail(String action, BigInteger single, BigInteger daily) {
+        return detail(action, single, daily, EXPIRES_AT);
+    }
+
+    private Map<String, Object> detail(String action, BigInteger single, BigInteger daily,
+                                       LocalDateTime expiresAt) {
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("keyId", KEY_ID);
         detail.put("chainId", CHAIN_ID);
@@ -224,6 +284,7 @@ class TokenPolicyChangeServiceTest {
             detail.put("dailyRawLimit", daily);
         }
         detail.put("reason", REASON);
+        detail.put("approvalExpiresAt", expiresAt);
         return detail;
     }
 

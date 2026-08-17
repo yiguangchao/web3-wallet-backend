@@ -13,4 +13,5 @@ public record TokenPolicyChangeView(
         BigInteger dailyRawLimit,
         String reason,
         String proposedBy,
-        LocalDateTime proposedAt) {}
+        LocalDateTime proposedAt,
+        LocalDateTime approvalExpiresAt) {}

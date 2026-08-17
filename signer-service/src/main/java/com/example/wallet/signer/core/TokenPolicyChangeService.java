@@ -2,7 +2,9 @@ package com.example.wallet.signer.core;
 
 import com.example.wallet.signer.api.TokenPolicyChangeRequest;
 import com.example.wallet.signer.api.TokenPolicyChangeView;
+import com.example.wallet.signer.config.SignerProperties;
 import java.math.BigInteger;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -19,26 +21,32 @@ public class TokenPolicyChangeService {
 
     private final JdbcTemplate jdbc;
     private final AuditChainService audit;
+    private final SignerProperties properties;
+    private final Clock clock;
 
-    public TokenPolicyChangeService(JdbcTemplate jdbc, AuditChainService audit) {
+    public TokenPolicyChangeService(JdbcTemplate jdbc, AuditChainService audit,
+                                    SignerProperties properties, Clock clock) {
         this.jdbc = jdbc;
         this.audit = audit;
+        this.properties = properties;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
     public List<TokenPolicyChangeView> pending() {
         return jdbc.query("""
                 SELECT id,key_id,chain_id,token_address,action,single_raw_limit,daily_raw_limit,
-                       reason,proposed_by,proposed_at
+                       reason,proposed_by,proposed_at,approval_expires_at
                 FROM signer_token_policy_change
-                WHERE status='PENDING'
+                WHERE status='PENDING' AND approval_expires_at > UTC_TIMESTAMP(6)
                 ORDER BY proposed_at,id
                 LIMIT 100
                 """, (rs, rowNum) -> new TokenPolicyChangeView(
                 rs.getLong(1), rs.getString(2), rs.getLong(3), rs.getString(4), rs.getString(5),
                 rs.getBigDecimal(6) == null ? null : rs.getBigDecimal(6).toBigIntegerExact(),
                 rs.getBigDecimal(7) == null ? null : rs.getBigDecimal(7).toBigIntegerExact(),
-                rs.getString(8), rs.getString(9), rs.getTimestamp(10).toLocalDateTime()));
+                rs.getString(8), rs.getString(9), rs.getTimestamp(10).toLocalDateTime(),
+                rs.getTimestamp(11).toLocalDateTime()));
     }
 
     @Transactional
@@ -48,22 +56,27 @@ public class TokenPolicyChangeService {
         String actor = actor();
         String tokenAddress = request.tokenAddress().toLowerCase(Locale.ROOT);
         String reason = safeReason(request.reason());
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime approvalExpiresAt = now.plusSeconds(
+                properties.getTokenPolicyApprovalTtlSeconds());
         try {
             jdbc.update("""
                     INSERT INTO signer_token_policy_change(
                         key_id,chain_id,token_address,action,single_raw_limit,daily_raw_limit,
-                        reason,status,proposed_by,proposed_at)
-                    VALUES(?,?,?,?,?,?,?,'PENDING',?,?)
+                        reason,status,proposed_by,proposed_at,approval_expires_at)
+                    VALUES(?,?,?,?,?,?,?,'PENDING',?,?,?)
                     """, request.keyId(), request.chainId(), tokenAddress, request.action(),
-                    request.singleRawLimit(), request.dailyRawLimit(), reason, actor, now);
+                    request.singleRawLimit(), request.dailyRawLimit(), reason, actor, now,
+                    approvalExpiresAt);
         } catch (DuplicateKeyException ex) {
             throw new IllegalStateException("a pending token policy change already exists", ex);
         }
         Long id = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        audit.append("TOKEN_POLICY_CHANGE_PROPOSED", actor, String.valueOf(id), auditDetail(
+        Map<String, Object> detail = auditDetail(
                 request.keyId(), request.chainId(), tokenAddress, request.action(),
-                request.singleRawLimit(), request.dailyRawLimit(), reason));
+                request.singleRawLimit(), request.dailyRawLimit(), reason);
+        detail.put("approvalExpiresAt", approvalExpiresAt);
+        audit.append("TOKEN_POLICY_CHANGE_PROPOSED", actor, String.valueOf(id), detail);
         return id;
     }
 
@@ -77,20 +90,24 @@ public class TokenPolicyChangeService {
         if (approver.equals(change.proposedBy())) {
             throw new IllegalArgumentException("proposer and approver must be different identities");
         }
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (!now.isBefore(change.approvalExpiresAt())) {
+            throw new IllegalArgumentException("token policy change approval has expired");
+        }
         requireActiveKey(change.keyId(), change.chainId());
-        LocalDateTime now = LocalDateTime.now();
         apply(change, now);
         if (jdbc.update("""
                 UPDATE signer_token_policy_change
                 SET status='APPROVED',approved_by=?,approved_at=?
-                WHERE id=? AND status='PENDING' AND proposed_by<>?
-                """, approver, now, changeId, approver) != 1) {
+                WHERE id=? AND status='PENDING' AND proposed_by<>? AND approval_expires_at>?
+                """, approver, now, changeId, approver, now) != 1) {
             throw new IllegalStateException("token policy change approval changed concurrently");
         }
         Map<String, Object> detail = auditDetail(change.keyId(), change.chainId(),
                 change.tokenAddress(), change.action(), change.singleRawLimit(),
                 change.dailyRawLimit(), change.reason());
         detail.put("proposedBy", change.proposedBy());
+        detail.put("approvalExpiresAt", change.approvalExpiresAt());
         audit.append("TOKEN_POLICY_CHANGE_APPROVED", approver, String.valueOf(changeId), detail);
     }
 
@@ -104,7 +121,7 @@ public class TokenPolicyChangeService {
         if (!actor.equals(change.proposedBy())) {
             throw new IllegalArgumentException("only the proposer can cancel a token policy change");
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         if (jdbc.update("""
                 UPDATE signer_token_policy_change
                 SET status='CANCELLED',cancelled_by=?,cancelled_at=?
@@ -115,20 +132,56 @@ public class TokenPolicyChangeService {
         Map<String, Object> detail = auditDetail(change.keyId(), change.chainId(),
                 change.tokenAddress(), change.action(), change.singleRawLimit(),
                 change.dailyRawLimit(), change.reason());
+        detail.put("approvalExpiresAt", change.approvalExpiresAt());
         audit.append("TOKEN_POLICY_CHANGE_CANCELLED", actor, String.valueOf(changeId), detail);
+    }
+
+    @Transactional
+    public int expireDue() {
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<ExpiringChange> changes = jdbc.query("""
+                SELECT id,key_id,chain_id,token_address,action,single_raw_limit,daily_raw_limit,
+                       reason,proposed_by,approval_expires_at
+                FROM signer_token_policy_change
+                WHERE status='PENDING' AND approval_expires_at<=?
+                ORDER BY approval_expires_at,id
+                LIMIT 100
+                FOR UPDATE SKIP LOCKED
+                """, (rs, rowNum) -> new ExpiringChange(rs.getLong(1), rs.getString(2),
+                rs.getLong(3), rs.getString(4), rs.getString(5),
+                rs.getBigDecimal(6) == null ? null : rs.getBigDecimal(6).toBigIntegerExact(),
+                rs.getBigDecimal(7) == null ? null : rs.getBigDecimal(7).toBigIntegerExact(),
+                rs.getString(8), rs.getString(9), rs.getTimestamp(10).toLocalDateTime()), now);
+        for (ExpiringChange change : changes) {
+            if (jdbc.update("""
+                    UPDATE signer_token_policy_change SET status='EXPIRED',expired_at=?
+                    WHERE id=? AND status='PENDING' AND approval_expires_at<=?
+                    """, now, change.id(), now) != 1) {
+                throw new IllegalStateException("token policy change expiration changed concurrently");
+            }
+            Map<String, Object> detail = auditDetail(change.keyId(), change.chainId(),
+                    change.tokenAddress(), change.action(), change.singleRawLimit(),
+                    change.dailyRawLimit(), change.reason());
+            detail.put("proposedBy", change.proposedBy());
+            detail.put("approvalExpiresAt", change.approvalExpiresAt());
+            detail.put("expiredAt", now);
+            audit.append("TOKEN_POLICY_CHANGE_EXPIRED", "SYSTEM", String.valueOf(change.id()), detail);
+        }
+        return changes.size();
     }
 
     private Change pendingChange(long changeId) {
         return jdbc.query("""
                 SELECT key_id,chain_id,token_address,action,single_raw_limit,daily_raw_limit,
-                       reason,status,proposed_by
+                       reason,status,proposed_by,approval_expires_at
                 FROM signer_token_policy_change WHERE id=? FOR UPDATE
                 """, rs -> rs.next() ? new Change(rs.getString(1), rs.getLong(2), rs.getString(3),
                 rs.getString(4), rs.getBigDecimal(5) == null ? null
                         : rs.getBigDecimal(5).toBigIntegerExact(),
                 rs.getBigDecimal(6) == null ? null
                         : rs.getBigDecimal(6).toBigIntegerExact(),
-                rs.getString(7), rs.getString(8), rs.getString(9)) : null, changeId);
+                rs.getString(7), rs.getString(8), rs.getString(9),
+                rs.getTimestamp(10).toLocalDateTime()) : null, changeId);
     }
 
     private void apply(Change change, LocalDateTime now) {
@@ -228,5 +281,9 @@ public class TokenPolicyChangeService {
 
     record Change(String keyId, long chainId, String tokenAddress, String action,
                   BigInteger singleRawLimit, BigInteger dailyRawLimit, String reason,
-                  String status, String proposedBy) {}
+                  String status, String proposedBy, LocalDateTime approvalExpiresAt) {}
+
+    record ExpiringChange(long id, String keyId, long chainId, String tokenAddress, String action,
+                          BigInteger singleRawLimit, BigInteger dailyRawLimit, String reason,
+                          String proposedBy, LocalDateTime approvalExpiresAt) {}
 }

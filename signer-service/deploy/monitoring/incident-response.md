@@ -46,3 +46,10 @@
 1. Treat the stale-request count as unknown while `wallet_signer_idempotency_stale_collection_up` is `0`.
 2. Check MySQL connectivity and the signer metric-collection logs; do not assume there are no stuck requests.
 3. Restore metric collection, then review the stale-request endpoint before closing the incident.
+
+## Token-policy expiration failure
+
+1. Treat every proposal past `approval_expires_at` as ineligible for approval even if its database status is still `PENDING`.
+2. Check MySQL connectivity, scheduler health and audit-chain writes; never extend a proposal deadline by editing the row.
+3. Restore the expiration job and confirm `wallet_signer_token_policy_expiration_up` returns to `1`.
+4. Require the original administrator to submit a new proposal if the change is still needed, then repeat independent approval.

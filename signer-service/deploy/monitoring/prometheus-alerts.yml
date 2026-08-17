@@ -43,3 +43,10 @@ groups:
         annotations:
           summary: Wallet signer stale-request monitoring is unavailable
           runbook_url: signer-service/deploy/monitoring/incident-response.md#stale-request-monitoring-failure
+      - alert: WalletSignerTokenPolicyExpirationDown
+        expr: wallet_signer_token_policy_expiration_up != 1
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: Wallet signer token-policy expiration is unavailable
+          runbook_url: signer-service/deploy/monitoring/incident-response.md#token-policy-expiration-failure

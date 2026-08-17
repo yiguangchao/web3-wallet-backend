@@ -12,6 +12,7 @@ public class SignerProperties {
     private String adminSubjectPattern = "^CN=wallet-key-admin-[^,]+(?:,.*)?$";
     private long requestClockSkewSeconds = 60;
     private long processingAlertSeconds = 300;
+    private long tokenPolicyApprovalTtlSeconds = 86400;
     private boolean production = true;
     public String getWalletServiceTokenHash() { return walletServiceTokenHash; }
     public void setWalletServiceTokenHash(String value) { this.walletServiceTokenHash = value; }
@@ -25,6 +26,8 @@ public class SignerProperties {
     public void setRequestClockSkewSeconds(long value) { this.requestClockSkewSeconds = value; }
     public long getProcessingAlertSeconds() { return processingAlertSeconds; }
     public void setProcessingAlertSeconds(long value) { this.processingAlertSeconds = value; }
+    public long getTokenPolicyApprovalTtlSeconds() { return tokenPolicyApprovalTtlSeconds; }
+    public void setTokenPolicyApprovalTtlSeconds(long value) { this.tokenPolicyApprovalTtlSeconds = value; }
     public boolean isProduction() { return production; }
     public void setProduction(boolean value) { this.production = value; }
 }
