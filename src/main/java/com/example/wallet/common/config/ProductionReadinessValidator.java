@@ -44,6 +44,11 @@ public class ProductionReadinessValidator implements ApplicationRunner {
         require(web3.getChainId() != null && web3.getChainId() > 0,
                 "production chain id is required");
         requireSecureUrl(web3.getRpcUrl(), "RPC");
+        require(web3.isBlockHashQuorumEnabled(),
+                "production block-hash RPC quorum must be enabled");
+        requireSecureUrl(web3.getSecondaryRpcUrl(), "secondary RPC");
+        require(!web3.getRpcUrl().equalsIgnoreCase(web3.getSecondaryRpcUrl()),
+                "primary and secondary RPC URLs must be different");
         if (custody.isEnabled()) {
             require(custody.getKeys().stream().noneMatch(key -> StringUtils.hasText(key.getMnemonic())),
                     "local custody mnemonic is forbidden in production");

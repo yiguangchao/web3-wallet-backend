@@ -7,14 +7,14 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: Wallet backend is unavailable
-          runbook_url: docs/runbooks/incident-response.md#application-down
+          runbook_url: deploy/monitoring/wallet-incident-response.md#application-down
       - alert: WalletLedgerAnomaly
         expr: wallet_ledger_anomalies > 0
         for: 1m
         labels: { severity: critical }
         annotations:
           summary: Internal ledger invariant violation detected
-          runbook_url: docs/runbooks/incident-response.md#ledger-or-reconciliation-difference
+          runbook_url: deploy/monitoring/wallet-incident-response.md#ledger-or-reconciliation-difference
       - alert: WalletReconciliationDifference
         expr: wallet_reconciliation_differences > 0
         for: 1m
@@ -28,7 +28,7 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: Withdrawal broadcast outbox is accumulating
-          runbook_url: docs/runbooks/incident-response.md#outbox-backlog
+          runbook_url: deploy/monitoring/wallet-incident-response.md#outbox-backlog
       - alert: WalletPendingWithdrawals
         expr: wallet_withdraw_pending > 20
         for: 15m
@@ -41,23 +41,34 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: Hot-wallet nonce gap is unsafe
-          runbook_url: docs/runbooks/incident-response.md#nonce-anomaly
+          runbook_url: deploy/monitoring/wallet-incident-response.md#nonce-anomaly
       - alert: WalletScanLag
         expr: wallet_scan_block_lag > 24
         for: 5m
         labels: { severity: critical }
         annotations:
           summary: Deposit scanner is behind the chain head
-          runbook_url: docs/runbooks/incident-response.md#scan-lag
+          runbook_url: deploy/monitoring/wallet-incident-response.md#scan-lag
       - alert: WalletRpcErrorRate
         expr: rate(wallet_rpc_errors_total[5m]) / clamp_min(rate(wallet_rpc_requests_total[5m]), 1) > 0.05
         for: 5m
         labels: { severity: critical }
         annotations:
           summary: RPC error ratio is above 5 percent
+      - alert: WalletRpcBlockHashQuorumMismatch
+        expr: increase(wallet_rpc_block_hash_quorum_mismatches_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Independent RPC providers disagree on a canonical block hash
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-block-hash-quorum-failure
+      - alert: WalletRpcBlockHashQuorumError
+        expr: increase(wallet_rpc_block_hash_quorum_errors_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Secondary RPC cannot verify deposit block hashes
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-block-hash-quorum-failure
       - alert: WalletMonitoringCollectionFailure
         expr: increase(wallet_monitoring_collection_errors_total[5m]) > 0
         labels: { severity: warning }
         annotations:
           summary: Operational metric collection is failing
-

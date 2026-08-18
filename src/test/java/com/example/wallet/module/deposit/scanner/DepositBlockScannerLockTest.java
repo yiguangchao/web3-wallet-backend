@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
+import com.example.wallet.infrastructure.web3.RpcBlockHashQuorumVerifier;
 import com.example.wallet.infrastructure.web3.Web3Properties;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
@@ -36,6 +37,8 @@ class DepositBlockScannerLockTest {
     private SupportedAssetService supportedAssetService;
     @Mock
     private WalletOperationalMetrics operationalMetrics;
+    @Mock
+    private RpcBlockHashQuorumVerifier blockHashQuorumVerifier;
 
     private DepositBlockScanner scanner;
     private DepositScanProperties properties;
@@ -48,7 +51,7 @@ class DepositBlockScannerLockTest {
         web3Properties.setChainId(11155111L);
         scanner = new DepositBlockScanner(
                 web3j, depositAddressMapper, properties, persistenceService, distributedLock,
-                supportedAssetService, web3Properties, operationalMetrics);
+                supportedAssetService, web3Properties, operationalMetrics, blockHashQuorumVerifier);
     }
 
     @Test

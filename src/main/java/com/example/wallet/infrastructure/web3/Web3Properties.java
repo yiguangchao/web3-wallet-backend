@@ -15,6 +15,8 @@ public class Web3Properties {
 
     @NotBlank
     private String rpcUrl;
+    private String secondaryRpcUrl;
+    private boolean blockHashQuorumEnabled;
     private Long chainId;
     @Min(1)
     private long connectTimeout = 5_000L;

@@ -23,6 +23,8 @@ jwt:
 
 web3:
   rpc-url: ${WEB3_RPC_URL}
+  secondary-rpc-url: ${WEB3_SECONDARY_RPC_URL}
+  block-hash-quorum-enabled: ${WEB3_BLOCK_HASH_QUORUM_ENABLED:true}
   chain-id: ${WEB3_CHAIN_ID}
 
 wallet:

@@ -79,6 +79,13 @@ RPC 客户端统一应用连接、读写和总调用超时，并对网络异常�
 - `WEB3_RETRY_MAX_BACKOFF`：最大退避时间，默认 `5000` 毫秒
 - `WEB3_MAX_REQUESTS_PER_SECOND`：实例级 RPC 请求速率，默认 `10`
 
+充值扫描支持独立 RPC 区块哈希 quorum。主 RPC 返回完整区块和交易，备用 RPC 只查询相同高度的区块头；哈希不一致、备用节点超时或无法返回区块时扫描器 fail-closed，不保存新区块、不推进游标、也不确认充值。本地默认关闭，生产 `prod` Profile 强制开启，并要求两个不同的 HTTPS 地址：
+
+- `WEB3_SECONDARY_RPC_URL`：建议使用与主 RPC 不同的供应商。
+- `WEB3_BLOCK_HASH_QUORUM_ENABLED`：生产必须为 `true`。
+
+当前 quorum 覆盖充值扫块、确认前规范链检查和重组祖先搜索，不代表已经完成提现 Receipt、Nonce、余额查询的多 RPC 验证或自动故障切换。
+
 4. 启动应用：
 
 ```bash
@@ -378,6 +385,7 @@ V14 默认策略要求提现地址白名单，并为 Sepolia ETH 设置用户每
 Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需要 `ADMIN` 权限，生产环境还应在网络层限制监控端点。`prod` Profile 的 readiness 除数据库和 Redis 外，还会通过同一套 mTLS 客户端检查 signer-service readiness；signer 不可用或 KMS 预检失败时，钱包实例不会进入 Ready。可通过 `WALLET_SIGNER_REMOTE_HEALTH_PATH`、`WALLET_SIGNER_REMOTE_CONNECT_TIMEOUT` 和 `WALLET_SIGNER_REMOTE_READ_TIMEOUT` 配置探测路径与超时。当前指标包括：
 
 - `wallet.scan.block.lag`、`wallet.rpc.requests`、`wallet.rpc.errors`；
+- `wallet.rpc.block.hash.quorum.enabled/matches/mismatches/errors`；
 - `wallet.outbox.backlog`、`wallet.withdraw.pending`、`wallet.nonce.gap`；
 - `wallet.hot_wallet.asset.balance`、`wallet.hot_wallet.gas.balance`；
 - `wallet.ledger.anomalies`、`wallet.reconciliation.differences`；
