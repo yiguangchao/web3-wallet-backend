@@ -28,9 +28,11 @@ import org.web3j.utils.Numeric;
 public class Web3ServiceImpl implements Web3Service {
 
     private final Web3j web3j;
+    private final RpcQuorumVerifier rpcQuorumVerifier;
 
-    public Web3ServiceImpl(Web3j web3j) {
+    public Web3ServiceImpl(Web3j web3j, RpcQuorumVerifier rpcQuorumVerifier) {
         this.web3j = web3j;
+        this.rpcQuorumVerifier = rpcQuorumVerifier;
     }
 
     @Override
@@ -91,11 +93,14 @@ public class Web3ServiceImpl implements Web3Service {
 
     @Override
     public TransactionReceipt getTransactionReceipt(String txHash) {
-        if (txHash == null || !Numeric.containsHexPrefix(txHash)) {
+        if (!validTxHash(txHash)) {
             throw new BizException("transaction hash is invalid");
         }
         try {
-            return web3j.ethGetTransactionReceipt(txHash).send().getTransactionReceipt().orElse(null);
+            TransactionReceipt receipt = web3j.ethGetTransactionReceipt(txHash).send()
+                    .getTransactionReceipt().orElse(null);
+            rpcQuorumVerifier.verifyTransactionReceipt(txHash, receipt);
+            return receipt;
         } catch (Exception ex) {
             throw new BizException("query transaction receipt failed: " + ex.getMessage());
         }
@@ -258,6 +263,7 @@ public class Web3ServiceImpl implements Web3Service {
             if (response.hasError() || response.getBlock() == null) {
                 throw new BizException("block is unavailable");
             }
+            rpcQuorumVerifier.verifyBlockHash(blockNumber, response.getBlock().getHash());
             return response.getBlock().getHash();
         } catch (BizException ex) {
             throw ex;

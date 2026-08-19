@@ -3,7 +3,7 @@ package com.example.wallet.module.deposit.scanner;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
 import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
 import com.example.wallet.infrastructure.web3.Web3Properties;
-import com.example.wallet.infrastructure.web3.RpcBlockHashQuorumVerifier;
+import com.example.wallet.infrastructure.web3.RpcQuorumVerifier;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
@@ -52,7 +52,7 @@ public class DepositBlockScanner {
     private final SupportedAssetService supportedAssetService;
     private final Web3Properties web3Properties;
     private final WalletOperationalMetrics operationalMetrics;
-    private final RpcBlockHashQuorumVerifier blockHashQuorumVerifier;
+    private final RpcQuorumVerifier rpcQuorumVerifier;
 
     public DepositBlockScanner(Web3j web3j,
                                CustodyDepositAddressMapper depositAddressMapper,
@@ -62,7 +62,7 @@ public class DepositBlockScanner {
                                SupportedAssetService supportedAssetService,
                                Web3Properties web3Properties,
                                WalletOperationalMetrics operationalMetrics,
-                               RpcBlockHashQuorumVerifier blockHashQuorumVerifier) {
+                               RpcQuorumVerifier rpcQuorumVerifier) {
         this.web3j = web3j;
         this.depositAddressMapper = depositAddressMapper;
         this.properties = properties;
@@ -71,7 +71,7 @@ public class DepositBlockScanner {
         this.supportedAssetService = supportedAssetService;
         this.web3Properties = web3Properties;
         this.operationalMetrics = operationalMetrics;
-        this.blockHashQuorumVerifier = blockHashQuorumVerifier;
+        this.rpcQuorumVerifier = rpcQuorumVerifier;
     }
 
     @Scheduled(fixedDelayString = "${wallet.scan.fixed-delay:15000}")
@@ -290,9 +290,10 @@ public class DepositBlockScanner {
     }
 
     private boolean isSuccessful(String txHash) throws Exception {
-        return web3j.ethGetTransactionReceipt(txHash).send().getTransactionReceipt()
-                .map(TransactionReceipt::isStatusOK)
-                .orElse(false);
+        TransactionReceipt receipt = web3j.ethGetTransactionReceipt(txHash).send()
+                .getTransactionReceipt().orElse(null);
+        rpcQuorumVerifier.verifyTransactionReceipt(txHash, receipt);
+        return receipt != null && receipt.isStatusOK();
     }
 
     private EthBlock.Block getBlock(BigInteger blockNumber, boolean fullTransactions) throws Exception {
@@ -302,7 +303,7 @@ public class DepositBlockScanner {
             String message = response.hasError() ? response.getError().getMessage() : "block not found";
             throw new IllegalStateException("Unable to read block " + blockNumber + ": " + message);
         }
-        blockHashQuorumVerifier.verify(blockNumber, response.getBlock().getHash());
+        rpcQuorumVerifier.verifyBlockHash(blockNumber, response.getBlock().getHash());
         return response.getBlock();
     }
 

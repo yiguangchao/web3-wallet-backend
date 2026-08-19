@@ -27,6 +27,7 @@ import org.web3j.crypto.Hash;
 import org.web3j.crypto.RawTransaction;
 import org.web3j.crypto.TransactionEncoder;
 import org.web3j.protocol.Web3j;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.protocol.http.HttpService;
@@ -63,7 +64,8 @@ class AnvilBlockchainIntegrationTest {
         web3j = Web3j.build(new HttpService(rpcUrl));
         assertThat(web3j.ethChainId().send().getChainId()).isEqualTo(BigInteger.valueOf(chainId));
         credentials = Credentials.create(ANVIL_PRIVATE_KEY);
-        web3Service = new Web3ServiceImpl(web3j);
+        web3Service = new Web3ServiceImpl(web3j,
+                new RpcQuorumVerifier(false, null, new SimpleMeterRegistry()));
     }
 
     @AfterAll
@@ -181,4 +183,3 @@ class AnvilBlockchainIntegrationTest {
         throw new AssertionError("transaction did not reach " + required + " confirmations");
     }
 }
-

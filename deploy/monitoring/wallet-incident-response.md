@@ -32,6 +32,10 @@ Pause deposit crediting when the canonical chain cannot be determined. Verify ch
 
 Keep deposit scanning and crediting paused. Record the block height and both provider responses, then verify chain ID, provider status and the block hash using a third independent source. Do not disable quorum, move the scan cursor or choose the hash returned by the faster provider. Resume only after both configured providers agree on the canonical hash and the affected range has been rescanned and reconciled. Persistent disagreement requires replacing the unhealthy provider through the reviewed production configuration pipeline.
 
+## RPC receipt quorum failure
+
+Pause automatic withdrawal settlement and custody sweep finalization. Preserve both provider responses, the locally derived transaction hash, sender, nonce and stored raw transaction. Do not confirm, release, replace or rebroadcast the transaction while receipt existence, block identity or execution status differs. Verify the transaction and canonical block through a third independent provider; uncertain outcomes must enter the dual-control manual-review workflow. Resume automatic processing only after providers agree and affected orders have been reconciled.
+
 ## Manual-review resolution
 
 One administrator submits a resolution proposal with evidence. A different administrator executes it. `CONFIRM` requires a successful canonical receipt with the configured confirmation count. `RELEASE` is rejected while the transaction is successful, pending or otherwise known by the RPC.

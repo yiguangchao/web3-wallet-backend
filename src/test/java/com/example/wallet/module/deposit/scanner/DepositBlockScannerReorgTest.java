@@ -10,7 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.wallet.infrastructure.redis.RedisDistributedLock;
-import com.example.wallet.infrastructure.web3.RpcBlockHashQuorumVerifier;
+import com.example.wallet.infrastructure.web3.RpcQuorumVerifier;
 import com.example.wallet.infrastructure.web3.Web3Properties;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
@@ -37,7 +37,7 @@ class DepositBlockScannerReorgTest {
     @Mock private RedisDistributedLock lock;
     @Mock private SupportedAssetService assetService;
     @Mock private WalletOperationalMetrics operationalMetrics;
-    @Mock private RpcBlockHashQuorumVerifier blockHashQuorumVerifier;
+    @Mock private RpcQuorumVerifier rpcQuorumVerifier;
 
     private DepositBlockScanner scanner;
 
@@ -50,7 +50,7 @@ class DepositBlockScannerReorgTest {
         web3Properties.setChainId(11155111L);
         scanner = new DepositBlockScanner(
                 web3j, addressMapper, properties, persistenceService, lock, assetService,
-                web3Properties, operationalMetrics, blockHashQuorumVerifier);
+                web3Properties, operationalMetrics, rpcQuorumVerifier);
     }
 
     @Test
@@ -79,7 +79,7 @@ class DepositBlockScannerReorgTest {
 
         assertThat(ancestor.number()).isEqualTo(BigInteger.valueOf(103));
         assertThat(ancestor.hash()).isEqualTo(ancestorHash);
-        verify(blockHashQuorumVerifier, times(3)).verify(any(), any());
+        verify(rpcQuorumVerifier, times(3)).verifyBlockHash(any(), any());
     }
 
     private ChainScannedBlock stored(long number, String hash) {
