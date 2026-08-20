@@ -36,6 +36,10 @@ Keep deposit scanning and crediting paused. Record the block height and both pro
 
 Pause automatic withdrawal settlement and custody sweep finalization. Preserve both provider responses, the locally derived transaction hash, sender, nonce and stored raw transaction. Do not confirm, release, replace or rebroadcast the transaction while receipt existence, block identity or execution status differs. Verify the transaction and canonical block through a third independent provider; uncertain outcomes must enter the dual-control manual-review workflow. Resume automatic processing only after providers agree and affected orders have been reconciled.
 
+## RPC nonce quorum failure
+
+Pause new withdrawal signing and nonce allocation for the affected hot wallet. Preserve both providers' `latest` and `pending` transaction counts, the database `wallet_nonce` row and every locally stored transaction in the disputed nonce range. Do not lower the database nonce, reuse a nonce, replace a transaction or select the larger response automatically. Check each nonce and transaction through a third independent provider, then reconcile the outbox and withdrawal state under dual control. Resume only after the configured providers agree and all affected signed transactions are accounted for.
+
 ## Manual-review resolution
 
 One administrator submits a resolution proposal with evidence. A different administrator executes it. `CONFIRM` requires a successful canonical receipt with the configured confirmation count. `RELEASE` is rejected while the transaction is successful, pending or otherwise known by the RPC.

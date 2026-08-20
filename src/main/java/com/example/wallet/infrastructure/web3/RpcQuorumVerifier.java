@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameter;
+import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 import org.web3j.protocol.http.HttpService;
 
@@ -27,6 +28,12 @@ public class RpcQuorumVerifier {
     private final Counter receiptMatches;
     private final Counter receiptMismatches;
     private final Counter receiptErrors;
+    private final Counter pendingNonceMatches;
+    private final Counter pendingNonceMismatches;
+    private final Counter pendingNonceErrors;
+    private final Counter latestNonceMatches;
+    private final Counter latestNonceMismatches;
+    private final Counter latestNonceErrors;
 
     @Autowired
     public RpcQuorumVerifier(Web3Properties properties, OkHttpClient web3HttpClient,
@@ -49,6 +56,12 @@ public class RpcQuorumVerifier {
         this.receiptMatches = registry.counter("wallet.rpc.receipt.quorum.matches");
         this.receiptMismatches = registry.counter("wallet.rpc.receipt.quorum.mismatches");
         this.receiptErrors = registry.counter("wallet.rpc.receipt.quorum.errors");
+        this.pendingNonceMatches = registry.counter("wallet.rpc.nonce.pending.quorum.matches");
+        this.pendingNonceMismatches = registry.counter("wallet.rpc.nonce.pending.quorum.mismatches");
+        this.pendingNonceErrors = registry.counter("wallet.rpc.nonce.pending.quorum.errors");
+        this.latestNonceMatches = registry.counter("wallet.rpc.nonce.latest.quorum.matches");
+        this.latestNonceMismatches = registry.counter("wallet.rpc.nonce.latest.quorum.mismatches");
+        this.latestNonceErrors = registry.counter("wallet.rpc.nonce.latest.quorum.errors");
     }
 
     public void verifyBlockHash(BigInteger blockNumber, String primaryHash) {
@@ -107,6 +120,55 @@ public class RpcQuorumVerifier {
         }
     }
 
+    public void verifyTransactionCount(String address, DefaultBlockParameterName blockParameter,
+                                       BigInteger primaryNonce) {
+        if (!enabled) {
+            return;
+        }
+        if (!isAddress(address) || primaryNonce == null || primaryNonce.signum() < 0
+                || (blockParameter != DefaultBlockParameterName.PENDING
+                && blockParameter != DefaultBlockParameterName.LATEST)) {
+            throw new IllegalArgumentException("primary RPC returned an invalid nonce identity");
+        }
+        Counter matches = blockParameter == DefaultBlockParameterName.PENDING
+                ? pendingNonceMatches : latestNonceMatches;
+        Counter mismatches = blockParameter == DefaultBlockParameterName.PENDING
+                ? pendingNonceMismatches : latestNonceMismatches;
+        Counter errors = blockParameter == DefaultBlockParameterName.PENDING
+                ? pendingNonceErrors : latestNonceErrors;
+        String state = blockParameter == DefaultBlockParameterName.PENDING ? "pending" : "latest";
+        try {
+            var response = secondaryWeb3j.ethGetTransactionCount(address, blockParameter).send();
+            if (response.hasError()) {
+                errors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC could not verify " + state + " nonce");
+            }
+            BigInteger secondaryNonce;
+            try {
+                secondaryNonce = response.getTransactionCount();
+            } catch (RuntimeException ex) {
+                errors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid " + state + " nonce", ex);
+            }
+            if (secondaryNonce == null || secondaryNonce.signum() < 0) {
+                errors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid " + state + " nonce");
+            }
+            if (!primaryNonce.equals(secondaryNonce)) {
+                mismatches.increment();
+                throw new IllegalStateException("RPC " + state + " nonce quorum mismatch");
+            }
+            matches.increment();
+        } catch (IOException ex) {
+            errors.increment();
+            throw new IllegalStateException(
+                    "secondary RPC could not verify " + state + " nonce", ex);
+        }
+    }
+
     private boolean sameReceipt(String txHash, TransactionReceipt primary,
                                 TransactionReceipt secondary) {
         if (primary == null || secondary == null) {
@@ -125,6 +187,10 @@ public class RpcQuorumVerifier {
 
     private boolean isHash(String value) {
         return StringUtils.hasText(value) && value.matches("^0x[0-9a-fA-F]{64}$");
+    }
+
+    private boolean isAddress(String value) {
+        return StringUtils.hasText(value) && value.matches("^0x[0-9a-fA-F]{40}$");
     }
 
     private static Web3j createSecondaryClient(Web3Properties properties,

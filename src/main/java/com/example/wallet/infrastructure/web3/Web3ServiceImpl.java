@@ -112,8 +112,20 @@ public class Web3ServiceImpl implements Web3Service {
             throw new BizException("hot wallet address is invalid");
         }
         try {
-            return web3j.ethGetTransactionCount(
-                    address, DefaultBlockParameterName.PENDING).send().getTransactionCount();
+            var response = web3j.ethGetTransactionCount(
+                    address, DefaultBlockParameterName.PENDING).send();
+            if (response.hasError()) {
+                throw new BizException("primary RPC returned an invalid pending nonce");
+            }
+            BigInteger nonce = response.getTransactionCount();
+            if (nonce == null || nonce.signum() < 0) {
+                throw new BizException("primary RPC returned an invalid pending nonce");
+            }
+            rpcQuorumVerifier.verifyTransactionCount(
+                    address, DefaultBlockParameterName.PENDING, nonce);
+            return nonce;
+        } catch (BizException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BizException("query hot wallet nonce failed: " + ex.getMessage());
         }
@@ -125,8 +137,20 @@ public class Web3ServiceImpl implements Web3Service {
             throw new BizException("hot wallet address is invalid");
         }
         try {
-            return web3j.ethGetTransactionCount(
-                    address, DefaultBlockParameterName.LATEST).send().getTransactionCount();
+            var response = web3j.ethGetTransactionCount(
+                    address, DefaultBlockParameterName.LATEST).send();
+            if (response.hasError()) {
+                throw new BizException("primary RPC returned an invalid latest nonce");
+            }
+            BigInteger nonce = response.getTransactionCount();
+            if (nonce == null || nonce.signum() < 0) {
+                throw new BizException("primary RPC returned an invalid latest nonce");
+            }
+            rpcQuorumVerifier.verifyTransactionCount(
+                    address, DefaultBlockParameterName.LATEST, nonce);
+            return nonce;
+        } catch (BizException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BizException("query latest hot wallet nonce failed: " + ex.getMessage());
         }

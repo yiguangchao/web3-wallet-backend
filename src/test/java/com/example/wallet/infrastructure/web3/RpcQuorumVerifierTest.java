@@ -14,15 +14,18 @@ import java.math.BigInteger;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthBlock;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
+import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 
 class RpcQuorumVerifierTest {
     private static final BigInteger BLOCK_NUMBER = BigInteger.valueOf(12345);
     private static final String BLOCK_HASH = "0x" + "a".repeat(64);
     private static final String TX_HASH = "0x" + "1".repeat(64);
+    private static final String ADDRESS = "0x" + "2".repeat(40);
 
     @Test
     void disabledQuorumDoesNotCallSecondaryRpc() {
@@ -32,6 +35,8 @@ class RpcQuorumVerifierTest {
 
         verifier.verifyBlockHash(BLOCK_NUMBER, BLOCK_HASH);
         verifier.verifyTransactionReceipt(TX_HASH, receipt("0x1"));
+        verifier.verifyTransactionCount(
+                ADDRESS, DefaultBlockParameterName.PENDING, BigInteger.TEN);
 
         verifyNoInteractions(secondary);
     }
@@ -124,6 +129,50 @@ class RpcQuorumVerifierTest {
                 .hasMessage("RPC transaction receipt quorum mismatch");
     }
 
+    @Test
+    void acceptsMatchingPendingNonce() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubNonce(secondary, DefaultBlockParameterName.PENDING, BigInteger.TEN, false);
+
+        verifier.verifyTransactionCount(
+                ADDRESS, DefaultBlockParameterName.PENDING, BigInteger.TEN);
+
+        assertThat(counter(registry, "wallet.rpc.nonce.pending.quorum.matches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsDifferentLatestNonce() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubNonce(secondary, DefaultBlockParameterName.LATEST, BigInteger.TEN, false);
+
+        assertThatThrownBy(() -> verifier.verifyTransactionCount(
+                ADDRESS, DefaultBlockParameterName.LATEST, BigInteger.valueOf(11)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RPC latest nonce quorum mismatch");
+        assertThat(counter(registry, "wallet.rpc.nonce.latest.quorum.mismatches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsSecondaryNonceRpcError() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubNonce(secondary, DefaultBlockParameterName.PENDING, null, true);
+
+        assertThatThrownBy(() -> verifier.verifyTransactionCount(
+                ADDRESS, DefaultBlockParameterName.PENDING, BigInteger.TEN))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC could not verify pending nonce");
+        assertThat(counter(registry, "wallet.rpc.nonce.pending.quorum.errors"))
+                .isEqualTo(1D);
+    }
+
     @SuppressWarnings("unchecked")
     private void stubReceipt(Web3j secondary, TransactionReceipt receipt) throws Exception {
         Request<?, EthGetTransactionReceipt> request = mock(Request.class);
@@ -131,6 +180,17 @@ class RpcQuorumVerifierTest {
         doReturn(request).when(secondary).ethGetTransactionReceipt(TX_HASH);
         when(request.send()).thenReturn(response);
         when(response.getTransactionReceipt()).thenReturn(Optional.ofNullable(receipt));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubNonce(Web3j secondary, DefaultBlockParameterName blockParameter,
+                           BigInteger nonce, boolean hasError) throws Exception {
+        Request<?, EthGetTransactionCount> request = mock(Request.class);
+        EthGetTransactionCount response = mock(EthGetTransactionCount.class);
+        doReturn(request).when(secondary).ethGetTransactionCount(ADDRESS, blockParameter);
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getTransactionCount()).thenReturn(nonce);
     }
 
     private TransactionReceipt receipt(String status) {
