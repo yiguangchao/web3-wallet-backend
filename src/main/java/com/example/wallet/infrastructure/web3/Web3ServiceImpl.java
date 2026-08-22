@@ -3,7 +3,6 @@ package com.example.wallet.infrastructure.web3;
 import com.example.wallet.common.exception.BizException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.Collections;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -46,7 +45,7 @@ public class Web3ServiceImpl implements Web3Service {
             throw new BizException("wallet address is invalid");
         }
         try {
-            BigInteger wei = web3j.ethGetBalance(address, DefaultBlockParameterName.LATEST).send().getBalance();
+            BigInteger wei = queryNativeBalanceWei(address);
             return Convert.fromWei(new BigDecimal(wei), Convert.Unit.ETHER);
         } catch (Exception ex) {
             throw new BizException("query ETH balance failed: " + ex.getMessage());
@@ -60,20 +59,7 @@ public class Web3ServiceImpl implements Web3Service {
         }
         validateDecimals(decimals);
         try {
-            Function function = new Function(
-                    "balanceOf",
-                    Collections.singletonList(new Address(walletAddress)),
-                    Collections.singletonList(new TypeReference<Uint256>() {
-                    }));
-            String data = FunctionEncoder.encode(function);
-            EthCall response = web3j.ethCall(
-                    Transaction.createEthCallTransaction(walletAddress, tokenAddress, data),
-                    DefaultBlockParameterName.LATEST).send();
-            if (response.hasError()) {
-                throw new BizException(response.getError().getMessage());
-            }
-            List<Type> values = FunctionReturnDecoder.decode(response.getValue(), function.getOutputParameters());
-            BigInteger raw = values.isEmpty() ? BigInteger.ZERO : (BigInteger) values.get(0).getValue();
+            BigInteger raw = queryErc20BalanceRaw(walletAddress, tokenAddress);
             return new BigDecimal(raw).divide(BigDecimal.TEN.pow(decimals));
         } catch (BizException ex) {
             throw ex;
@@ -209,7 +195,9 @@ public class Web3ServiceImpl implements Web3Service {
             throw new BizException("wallet address is invalid");
         }
         try {
-            return web3j.ethGetBalance(address, DefaultBlockParameterName.LATEST).send().getBalance();
+            return queryNativeBalanceWei(address);
+        } catch (BizException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BizException("query native balance failed: " + ex.getMessage());
         }
@@ -221,18 +209,7 @@ public class Web3ServiceImpl implements Web3Service {
             throw new BizException("wallet address or token address is invalid");
         }
         try {
-            Function function = new Function(
-                    "balanceOf", List.of(new Address(walletAddress)),
-                    List.of(new TypeReference<Uint256>() { }));
-            EthCall response = web3j.ethCall(
-                    Transaction.createEthCallTransaction(walletAddress, tokenAddress,
-                            FunctionEncoder.encode(function)), DefaultBlockParameterName.LATEST).send();
-            if (response.hasError()) {
-                throw new BizException(response.getError().getMessage());
-            }
-            List<Type> values = FunctionReturnDecoder.decode(
-                    response.getValue(), function.getOutputParameters());
-            return values.isEmpty() ? BigInteger.ZERO : (BigInteger) values.get(0).getValue();
+            return queryErc20BalanceRaw(walletAddress, tokenAddress);
         } catch (BizException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -268,7 +245,9 @@ public class Web3ServiceImpl implements Web3Service {
             if (response.hasError()) {
                 throw new BizException("query transaction failed: " + response.getError().getMessage());
             }
-            return response.getTransaction().isPresent();
+            var transaction = response.getTransaction().orElse(null);
+            rpcQuorumVerifier.verifyTransactionPresence(txHash, transaction);
+            return transaction != null;
         } catch (BizException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -330,6 +309,70 @@ public class Web3ServiceImpl implements Web3Service {
 
     private boolean validTxHash(String txHash) {
         return txHash != null && txHash.matches("^0x[0-9a-fA-F]{64}$");
+    }
+
+    private BigInteger queryNativeBalanceWei(String address) throws Exception {
+        BigInteger blockNumber = resolveBalanceBlockNumber();
+        var response = web3j.ethGetBalance(
+                address, DefaultBlockParameter.valueOf(blockNumber)).send();
+        if (response.hasError()) {
+            throw new BizException("primary RPC could not query native balance");
+        }
+        BigInteger balance = response.getBalance();
+        if (balance == null || balance.signum() < 0) {
+            throw new BizException("primary RPC returned an invalid native balance");
+        }
+        rpcQuorumVerifier.verifyNativeBalance(address, blockNumber, balance);
+        return balance;
+    }
+
+    private BigInteger queryErc20BalanceRaw(String walletAddress, String tokenAddress)
+            throws Exception {
+        BigInteger blockNumber = resolveBalanceBlockNumber();
+        Function function = balanceOfFunction(walletAddress);
+        EthCall response = web3j.ethCall(
+                Transaction.createEthCallTransaction(walletAddress, tokenAddress,
+                        FunctionEncoder.encode(function)),
+                DefaultBlockParameter.valueOf(blockNumber)).send();
+        if (response.hasError()) {
+            throw new BizException("primary RPC could not query ERC-20 balance");
+        }
+        BigInteger balance = decodeErc20Balance(response.getValue(), function);
+        rpcQuorumVerifier.verifyErc20Balance(
+                walletAddress, tokenAddress, blockNumber, balance);
+        return balance;
+    }
+
+    private BigInteger resolveBalanceBlockNumber() throws Exception {
+        var response = web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send();
+        if (response.hasError() || response.getBlock() == null
+                || response.getBlock().getNumber() == null
+                || response.getBlock().getNumber().signum() < 0
+                || !validTxHash(response.getBlock().getHash())) {
+            throw new BizException("primary RPC returned an invalid balance block");
+        }
+        BigInteger blockNumber = response.getBlock().getNumber();
+        rpcQuorumVerifier.verifyBlockHash(blockNumber, response.getBlock().getHash());
+        return blockNumber;
+    }
+
+    private Function balanceOfFunction(String walletAddress) {
+        return new Function("balanceOf", List.of(new Address(walletAddress)),
+                List.of(new TypeReference<Uint256>() { }));
+    }
+
+    private BigInteger decodeErc20Balance(String value, Function function) {
+        try {
+            List<Type> values = FunctionReturnDecoder.decode(
+                    value, function.getOutputParameters());
+            if (values.size() != 1 || !(values.get(0).getValue() instanceof BigInteger balance)
+                    || balance.signum() < 0) {
+                throw new IllegalArgumentException("invalid ERC-20 balance");
+            }
+            return balance;
+        } catch (RuntimeException ex) {
+            throw new BizException("primary RPC returned an invalid ERC-20 balance");
+        }
     }
 
     private void validateDecimals(Integer decimals) {

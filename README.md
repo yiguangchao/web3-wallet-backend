@@ -84,7 +84,7 @@ RPC 客户端统一应用连接、读写和总调用超时，并对网络异常�
 - `WEB3_SECONDARY_RPC_URL`：建议使用与主 RPC 不同的供应商。
 - `WEB3_BLOCK_HASH_QUORUM_ENABLED`：生产必须为 `true`。
 
-当前 quorum 覆盖充值扫块、确认前规范链检查、重组祖先搜索、所有通过 `Web3Service` 读取的交易 Receipt，以及热钱包的 `pending/latest` Nonce。两个节点必须对 Receipt 是否存在、交易哈希、区块号、区块哈希、执行状态和 Nonce 全部一致；因此提现 nonce 分配、自动结算、双人人工确认和托管归集不会接受单节点结论。Nonce 不一致或备用节点异常时系统 fail-closed，不会继续分配或判断 nonce 已消费。它仍不代表已经完成余额、交易存在性查询的多 RPC 验证或自动故障切换。
+当前 quorum 覆盖充值扫块、确认前规范链检查、重组祖先搜索、所有通过 `Web3Service` 读取的交易 Receipt、热钱包的 `pending/latest` Nonce、`eth_getTransactionByHash` 交易存在性，以及 ETH/ERC-20 余额。余额查询先验证主、备节点在同一区块高度的规范哈希，再在该固定高度执行 `eth_getBalance` 或 `balanceOf`，避免两个节点各自的 `latest` 高度不同造成假分歧。因此提现余额预检、资产对账、nonce 分配、Outbox 恢复和最终结算都不会接受单节点结论。任何分歧或备用节点异常都会 fail-closed。当前仍未实现关键 RPC 的自动故障切换，链头、手续费和 Gas 估算也尚未形成完整 quorum。
 
 4. 启动应用：
 
@@ -388,6 +388,8 @@ Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需
 - `wallet.rpc.quorum.enabled`、`wallet.rpc.block.hash.quorum.enabled/matches/mismatches/errors`；
 - `wallet.rpc.receipt.quorum.matches/mismatches/errors`；
 - `wallet.rpc.nonce.pending.quorum.matches/mismatches/errors`、`wallet.rpc.nonce.latest.quorum.matches/mismatches/errors`；
+- `wallet.rpc.transaction.quorum.matches/mismatches/errors`；
+- `wallet.rpc.balance.native.quorum.matches/mismatches/errors`、`wallet.rpc.balance.erc20.quorum.matches/mismatches/errors`；
 - `wallet.outbox.backlog`、`wallet.withdraw.pending`、`wallet.nonce.gap`；
 - `wallet.hot_wallet.asset.balance`、`wallet.hot_wallet.gas.balance`；
 - `wallet.ledger.anomalies`、`wallet.reconciliation.differences`；

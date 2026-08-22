@@ -91,6 +91,30 @@ groups:
         annotations:
           summary: Secondary RPC cannot verify a hot-wallet nonce
           runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-nonce-quorum-failure
+      - alert: WalletRpcTransactionQuorumMismatch
+        expr: increase(wallet_rpc_transaction_quorum_mismatches_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Independent RPC providers disagree on transaction presence
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-transaction-quorum-failure
+      - alert: WalletRpcTransactionQuorumError
+        expr: increase(wallet_rpc_transaction_quorum_errors_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Secondary RPC cannot verify transaction presence
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-transaction-quorum-failure
+      - alert: WalletRpcBalanceQuorumMismatch
+        expr: increase(wallet_rpc_balance_native_quorum_mismatches_total[5m]) + increase(wallet_rpc_balance_erc20_quorum_mismatches_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Independent RPC providers disagree on an asset balance
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-balance-quorum-failure
+      - alert: WalletRpcBalanceQuorumError
+        expr: increase(wallet_rpc_balance_native_quorum_errors_total[5m]) + increase(wallet_rpc_balance_erc20_quorum_errors_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Secondary RPC cannot verify an asset balance
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-balance-quorum-failure
       - alert: WalletMonitoringCollectionFailure
         expr: increase(wallet_monitoring_collection_errors_total[5m]) > 0
         labels: { severity: warning }

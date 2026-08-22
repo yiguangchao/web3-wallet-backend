@@ -40,6 +40,14 @@ Pause automatic withdrawal settlement and custody sweep finalization. Preserve b
 
 Pause new withdrawal signing and nonce allocation for the affected hot wallet. Preserve both providers' `latest` and `pending` transaction counts, the database `wallet_nonce` row and every locally stored transaction in the disputed nonce range. Do not lower the database nonce, reuse a nonce, replace a transaction or select the larger response automatically. Check each nonce and transaction through a third independent provider, then reconcile the outbox and withdrawal state under dual control. Resume only after the configured providers agree and all affected signed transactions are accounted for.
 
+## RPC transaction quorum failure
+
+Pause automatic outbox recovery, withdrawal lifecycle decisions and manual release for the affected transaction. Preserve both `eth_getTransactionByHash` responses, the signed raw transaction, sender, nonce, outbox lease and withdrawal state. Do not classify the transaction as dropped, release frozen funds, create a replacement or broadcast a different payload while providers disagree. Verify the hash through a third independent provider and inspect the sender's pending/latest nonce. Resume only after the configured providers agree or a dual-control incident decision has reconciled every possible on-chain outcome.
+
+## RPC balance quorum failure
+
+Pause withdrawal preparation and do not close reconciliation differences for the affected wallet and asset. Preserve the fixed block number/hash, both `eth_getBalance` or `eth_call balanceOf` responses, token address and internal liability snapshot. Do not choose the larger or smaller balance, change internal balances or disable quorum. Verify the same block through a third independent archive-capable provider and determine whether either configured provider is lagging, pruned or on a non-canonical fork. Resume only after providers agree at a canonical block and affected withdrawal and reconciliation checks have been rerun.
+
 ## Manual-review resolution
 
 One administrator submits a resolution proposal with evidence. A different administrator executes it. `CONFIRM` requires a successful canonical receipt with the configured confirmation count. `RELEASE` is rejected while the transaction is successful, pending or otherwise known by the RPC.

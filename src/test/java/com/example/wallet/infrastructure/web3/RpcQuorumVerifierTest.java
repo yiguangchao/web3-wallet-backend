@@ -16,9 +16,13 @@ import org.junit.jupiter.api.Test;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.Request;
+import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthBlock;
+import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
+import org.web3j.protocol.core.methods.response.EthTransaction;
+import org.web3j.protocol.core.methods.response.Transaction;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 
 class RpcQuorumVerifierTest {
@@ -37,6 +41,9 @@ class RpcQuorumVerifierTest {
         verifier.verifyTransactionReceipt(TX_HASH, receipt("0x1"));
         verifier.verifyTransactionCount(
                 ADDRESS, DefaultBlockParameterName.PENDING, BigInteger.TEN);
+        verifier.verifyTransactionPresence(TX_HASH, transaction(TX_HASH));
+        verifier.verifyNativeBalance(ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+        verifier.verifyErc20Balance(ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
 
         verifyNoInteractions(secondary);
     }
@@ -173,6 +180,144 @@ class RpcQuorumVerifierTest {
                 .isEqualTo(1D);
     }
 
+    @Test
+    void acceptsTransactionPresenceWhenBothProvidersFindIt() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubTransaction(secondary, transaction("0x" + "1".repeat(64)), false);
+
+        verifier.verifyTransactionPresence(TX_HASH, transaction(TX_HASH));
+
+        assertThat(counter(registry, "wallet.rpc.transaction.quorum.matches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void acceptsTransactionAbsenceOnlyWhenBothProvidersAgree() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubTransaction(secondary, null, false);
+
+        verifier.verifyTransactionPresence(TX_HASH, null);
+
+        assertThat(counter(registry, "wallet.rpc.transaction.quorum.matches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsTransactionPresenceDisagreement() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubTransaction(secondary, transaction(TX_HASH), false);
+
+        assertThatThrownBy(() -> verifier.verifyTransactionPresence(TX_HASH, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RPC transaction presence quorum mismatch");
+        assertThat(counter(registry, "wallet.rpc.transaction.quorum.mismatches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsTransactionWithUnexpectedHash() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubTransaction(secondary, transaction("0x" + "3".repeat(64)), false);
+
+        assertThatThrownBy(() -> verifier.verifyTransactionPresence(
+                TX_HASH, transaction(TX_HASH)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RPC transaction presence quorum mismatch");
+    }
+
+    @Test
+    void rejectsSecondaryTransactionRpcError() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubTransaction(secondary, null, true);
+
+        assertThatThrownBy(() -> verifier.verifyTransactionPresence(TX_HASH, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC could not verify transaction presence");
+        assertThat(counter(registry, "wallet.rpc.transaction.quorum.errors"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void acceptsMatchingNativeBalanceAtFixedBlock() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubNativeBalance(secondary, BigInteger.TEN, false);
+
+        verifier.verifyNativeBalance(ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+
+        assertThat(counter(registry, "wallet.rpc.balance.native.quorum.matches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsDifferentNativeBalance() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubNativeBalance(secondary, BigInteger.valueOf(11), false);
+
+        assertThatThrownBy(() -> verifier.verifyNativeBalance(
+                ADDRESS, BLOCK_NUMBER, BigInteger.TEN))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RPC native balance quorum mismatch");
+        assertThat(counter(registry, "wallet.rpc.balance.native.quorum.mismatches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void acceptsMatchingErc20BalanceAtFixedBlock() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubErc20Balance(secondary, uint256(BigInteger.TEN), false);
+
+        verifier.verifyErc20Balance(ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+
+        assertThat(counter(registry, "wallet.rpc.balance.erc20.quorum.matches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsDifferentErc20Balance() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubErc20Balance(secondary, uint256(BigInteger.valueOf(11)), false);
+
+        assertThatThrownBy(() -> verifier.verifyErc20Balance(
+                ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RPC ERC-20 balance quorum mismatch");
+        assertThat(counter(registry, "wallet.rpc.balance.erc20.quorum.mismatches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsMalformedSecondaryErc20Balance() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubErc20Balance(secondary, "0x", false);
+
+        assertThatThrownBy(() -> verifier.verifyErc20Balance(
+                ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC returned an invalid ERC-20 balance");
+        assertThat(counter(registry, "wallet.rpc.balance.erc20.quorum.errors"))
+                .isEqualTo(1D);
+    }
+
     @SuppressWarnings("unchecked")
     private void stubReceipt(Web3j secondary, TransactionReceipt receipt) throws Exception {
         Request<?, EthGetTransactionReceipt> request = mock(Request.class);
@@ -191,6 +336,49 @@ class RpcQuorumVerifierTest {
         when(request.send()).thenReturn(response);
         when(response.hasError()).thenReturn(hasError);
         when(response.getTransactionCount()).thenReturn(nonce);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubTransaction(Web3j secondary, Transaction transaction,
+                                 boolean hasError) throws Exception {
+        Request<?, EthTransaction> request = mock(Request.class);
+        EthTransaction response = mock(EthTransaction.class);
+        doReturn(request).when(secondary).ethGetTransactionByHash(TX_HASH);
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getTransaction()).thenReturn(Optional.ofNullable(transaction));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubNativeBalance(Web3j secondary, BigInteger balance,
+                                   boolean hasError) throws Exception {
+        Request<?, EthGetBalance> request = mock(Request.class);
+        EthGetBalance response = mock(EthGetBalance.class);
+        doReturn(request).when(secondary).ethGetBalance(eq(ADDRESS), any());
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getBalance()).thenReturn(balance);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubErc20Balance(Web3j secondary, String value,
+                                  boolean hasError) throws Exception {
+        Request<?, EthCall> request = mock(Request.class);
+        EthCall response = mock(EthCall.class);
+        doReturn(request).when(secondary).ethCall(any(), any());
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getValue()).thenReturn(value);
+    }
+
+    private String uint256(BigInteger value) {
+        return "0x" + String.format("%064x", value);
+    }
+
+    private Transaction transaction(String hash) {
+        Transaction transaction = mock(Transaction.class);
+        when(transaction.getHash()).thenReturn(hash);
+        return transaction;
     }
 
     private TransactionReceipt receipt(String status) {

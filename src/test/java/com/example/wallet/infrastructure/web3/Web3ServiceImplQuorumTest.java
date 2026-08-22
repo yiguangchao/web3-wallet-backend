@@ -12,17 +12,23 @@ import java.math.BigInteger;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.DefaultBlockParameter;
 import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.Request;
+import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthBlock;
+import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
+import org.web3j.protocol.core.methods.response.EthTransaction;
+import org.web3j.protocol.core.methods.response.Transaction;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 
 class Web3ServiceImplQuorumTest {
     private static final String TX_HASH = "0x" + "1".repeat(64);
     private static final String BLOCK_HASH = "0x" + "a".repeat(64);
     private static final String ADDRESS = "0x" + "2".repeat(40);
+    private static final BigInteger BLOCK_NUMBER = BigInteger.valueOf(12345);
 
     @Test
     @SuppressWarnings("unchecked")
@@ -94,5 +100,75 @@ class Web3ServiceImplQuorumTest {
         assertThat(service.getLatestNonce(ADDRESS)).isEqualTo(BigInteger.TEN);
         verify(quorum).verifyTransactionCount(
                 ADDRESS, DefaultBlockParameterName.LATEST, BigInteger.TEN);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifiesTransactionPresenceBeforeReturningItToBusinessServices() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        Request<?, EthTransaction> request = mock(Request.class);
+        EthTransaction response = mock(EthTransaction.class);
+        Transaction transaction = mock(Transaction.class);
+        doReturn(request).when(web3j).ethGetTransactionByHash(TX_HASH);
+        when(request.send()).thenReturn(response);
+        when(response.getTransaction()).thenReturn(Optional.of(transaction));
+
+        assertThat(service.isTransactionKnown(TX_HASH)).isTrue();
+        verify(quorum).verifyTransactionPresence(TX_HASH, transaction);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifiesNativeBalanceAtTheSameCanonicalBlock() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        stubLatestBlock(web3j);
+        Request<?, EthGetBalance> request = mock(Request.class);
+        EthGetBalance response = mock(EthGetBalance.class);
+        doReturn(request).when(web3j).ethGetBalance(eq(ADDRESS), any(DefaultBlockParameter.class));
+        when(request.send()).thenReturn(response);
+        when(response.getBalance()).thenReturn(BigInteger.TEN);
+
+        assertThat(service.getNativeBalanceWei(ADDRESS)).isEqualTo(BigInteger.TEN);
+        verify(quorum).verifyBlockHash(BLOCK_NUMBER, BLOCK_HASH);
+        verify(quorum).verifyNativeBalance(ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifiesErc20BalanceAtTheSameCanonicalBlock() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        stubLatestBlock(web3j);
+        Request<?, EthCall> request = mock(Request.class);
+        EthCall response = mock(EthCall.class);
+        doReturn(request).when(web3j).ethCall(any(), any(DefaultBlockParameter.class));
+        when(request.send()).thenReturn(response);
+        when(response.getValue()).thenReturn(uint256(BigInteger.TEN));
+
+        assertThat(service.getErc20BalanceRaw(ADDRESS, ADDRESS)).isEqualTo(BigInteger.TEN);
+        verify(quorum).verifyBlockHash(BLOCK_NUMBER, BLOCK_HASH);
+        verify(quorum).verifyErc20Balance(ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubLatestBlock(Web3j web3j) throws Exception {
+        Request<?, EthBlock> request = mock(Request.class);
+        EthBlock response = mock(EthBlock.class);
+        EthBlock.Block block = new EthBlock.Block();
+        block.setNumber("0x" + BLOCK_NUMBER.toString(16));
+        block.setHash(BLOCK_HASH);
+        doReturn(request).when(web3j).ethGetBlockByNumber(
+                DefaultBlockParameterName.LATEST, false);
+        when(request.send()).thenReturn(response);
+        when(response.getBlock()).thenReturn(block);
+    }
+
+    private String uint256(BigInteger value) {
+        return "0x" + String.format("%064x", value);
     }
 }
