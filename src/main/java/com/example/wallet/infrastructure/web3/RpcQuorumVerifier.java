@@ -31,6 +31,8 @@ import org.web3j.protocol.http.HttpService;
 public class RpcQuorumVerifier {
     private final boolean enabled;
     private final Web3j secondaryWeb3j;
+    private final int maxHeadLag;
+    private final AtomicLong headLag = new AtomicLong();
     private final Counter blockMatches;
     private final Counter blockMismatches;
     private final Counter blockErrors;
@@ -52,21 +54,36 @@ public class RpcQuorumVerifier {
     private final Counter erc20BalanceMatches;
     private final Counter erc20BalanceMismatches;
     private final Counter erc20BalanceErrors;
+    private final Counter headAccepted;
+    private final Counter headMismatches;
+    private final Counter headErrors;
 
     @Autowired
     public RpcQuorumVerifier(Web3Properties properties, OkHttpClient web3HttpClient,
                              MeterRegistry registry) {
         this(properties.isBlockHashQuorumEnabled(),
-                createSecondaryClient(properties, web3HttpClient), registry);
+                createSecondaryClient(properties, web3HttpClient), registry,
+                properties.getRpcQuorumMaxHeadLag());
     }
 
     RpcQuorumVerifier(boolean enabled, Web3j secondaryWeb3j, MeterRegistry registry) {
+        this(enabled, secondaryWeb3j, registry, 2);
+    }
+
+    RpcQuorumVerifier(boolean enabled, Web3j secondaryWeb3j, MeterRegistry registry,
+                      int maxHeadLag) {
+        if (maxHeadLag < 0) {
+            throw new IllegalArgumentException("RPC quorum maximum head lag cannot be negative");
+        }
         this.enabled = enabled;
         this.secondaryWeb3j = secondaryWeb3j;
+        this.maxHeadLag = maxHeadLag;
         AtomicLong enabledGauge = new AtomicLong(enabled ? 1 : 0);
         Gauge.builder("wallet.rpc.quorum.enabled", enabledGauge, AtomicLong::get)
                 .register(registry);
         Gauge.builder("wallet.rpc.block.hash.quorum.enabled", enabledGauge, AtomicLong::get)
+                .register(registry);
+        Gauge.builder("wallet.rpc.head.quorum.lag", headLag, AtomicLong::get)
                 .register(registry);
         this.blockMatches = registry.counter("wallet.rpc.block.hash.quorum.matches");
         this.blockMismatches = registry.counter("wallet.rpc.block.hash.quorum.mismatches");
@@ -89,6 +106,48 @@ public class RpcQuorumVerifier {
         this.erc20BalanceMatches = registry.counter("wallet.rpc.balance.erc20.quorum.matches");
         this.erc20BalanceMismatches = registry.counter("wallet.rpc.balance.erc20.quorum.mismatches");
         this.erc20BalanceErrors = registry.counter("wallet.rpc.balance.erc20.quorum.errors");
+        this.headAccepted = registry.counter("wallet.rpc.head.quorum.accepted");
+        this.headMismatches = registry.counter("wallet.rpc.head.quorum.mismatches");
+        this.headErrors = registry.counter("wallet.rpc.head.quorum.errors");
+    }
+
+    public BigInteger resolveConservativeBlockNumber(BigInteger primaryHead) {
+        if (!enabled) {
+            return primaryHead;
+        }
+        if (primaryHead == null || primaryHead.signum() < 0) {
+            throw new IllegalArgumentException("primary RPC returned an invalid chain head");
+        }
+        try {
+            var response = secondaryWeb3j.ethBlockNumber().send();
+            if (response.hasError()) {
+                headErrors.increment();
+                throw new IllegalStateException("secondary RPC could not verify chain head");
+            }
+            BigInteger secondaryHead;
+            try {
+                secondaryHead = response.getBlockNumber();
+            } catch (RuntimeException ex) {
+                headErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid chain head", ex);
+            }
+            if (secondaryHead == null || secondaryHead.signum() < 0) {
+                headErrors.increment();
+                throw new IllegalStateException("secondary RPC returned an invalid chain head");
+            }
+            BigInteger lag = primaryHead.subtract(secondaryHead).abs();
+            headLag.set(lag.min(BigInteger.valueOf(Long.MAX_VALUE)).longValue());
+            if (lag.compareTo(BigInteger.valueOf(maxHeadLag)) > 0) {
+                headMismatches.increment();
+                throw new IllegalStateException("RPC chain head quorum lag exceeds limit");
+            }
+            headAccepted.increment();
+            return primaryHead.min(secondaryHead);
+        } catch (IOException ex) {
+            headErrors.increment();
+            throw new IllegalStateException("secondary RPC could not verify chain head", ex);
+        }
     }
 
     public void verifyBlockHash(BigInteger blockNumber, String primaryHash) {

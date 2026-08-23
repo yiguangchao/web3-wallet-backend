@@ -71,7 +71,20 @@ public class Web3ServiceImpl implements Web3Service {
     @Override
     public BigInteger getCurrentBlockNumber() {
         try {
-            return web3j.ethBlockNumber().send().getBlockNumber();
+            var response = web3j.ethBlockNumber().send();
+            if (response.hasError()) {
+                throw new BizException("primary RPC could not query chain head");
+            }
+            BigInteger primaryHead = response.getBlockNumber();
+            if (primaryHead == null || primaryHead.signum() < 0) {
+                throw new BizException("primary RPC returned an invalid chain head");
+            }
+            BigInteger conservativeHead =
+                    rpcQuorumVerifier.resolveConservativeBlockNumber(primaryHead);
+            getBlockHash(conservativeHead);
+            return conservativeHead;
+        } catch (BizException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new BizException("query current block failed: " + ex.getMessage());
         }

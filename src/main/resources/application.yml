@@ -37,6 +37,7 @@ web3:
   rpc-url: ${WEB3_RPC_URL:https://sepolia.infura.io/v3/your-key}
   secondary-rpc-url: ${WEB3_SECONDARY_RPC_URL:}
   block-hash-quorum-enabled: ${WEB3_BLOCK_HASH_QUORUM_ENABLED:false}
+  rpc-quorum-max-head-lag: ${WEB3_RPC_QUORUM_MAX_HEAD_LAG:2}
   chain-id: ${WEB3_CHAIN_ID:11155111}
   connect-timeout: ${WEB3_CONNECT_TIMEOUT:5000}
   read-timeout: ${WEB3_READ_TIMEOUT:15000}

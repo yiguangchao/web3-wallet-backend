@@ -113,7 +113,7 @@ public class DepositBlockScanner {
         ChainBlockScanRecord record = persistenceService.getOrCreateRecord();
         record = handleReorg(record);
         renewLock(lockHandle, leaseTime);
-        BigInteger latestBlock = web3j.ethBlockNumber().send().getBlockNumber();
+        BigInteger latestBlock = getConservativeLatestBlock();
         Map<String, CustodyDepositAddress> wallets = loadWallets();
 
         BigInteger nextBlock = record.getLastScannedBlock().add(BigInteger.ONE)
@@ -142,6 +142,23 @@ public class DepositBlockScanner {
         renewLock(lockHandle, leaseTime);
         BigInteger confirmedBlock = latestBlock.subtract(BigInteger.valueOf(properties.getConfirmBlocks() - 1L));
         persistenceService.updateConfirmedBlock(confirmedBlock);
+    }
+
+    private BigInteger getConservativeLatestBlock() throws Exception {
+        var response = web3j.ethBlockNumber().send();
+        if (response.hasError()) {
+            throw new IllegalStateException("primary RPC could not query deposit scan head");
+        }
+        BigInteger primaryHead = response.getBlockNumber();
+        if (primaryHead == null || primaryHead.signum() < 0) {
+            throw new IllegalStateException("primary RPC returned an invalid deposit scan head");
+        }
+        BigInteger conservativeHead =
+                rpcQuorumVerifier.resolveConservativeBlockNumber(primaryHead);
+        if (conservativeHead == null || conservativeHead.signum() < 0) {
+            throw new IllegalStateException("RPC quorum returned an invalid deposit scan head");
+        }
+        return conservativeHead;
     }
 
     private void renewLock(LockHandle lockHandle, Duration leaseTime) {

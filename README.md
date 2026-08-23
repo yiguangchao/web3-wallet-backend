@@ -83,8 +83,9 @@ RPC 客户端统一应用连接、读写和总调用超时，并对网络异常�
 
 - `WEB3_SECONDARY_RPC_URL`：建议使用与主 RPC 不同的供应商。
 - `WEB3_BLOCK_HASH_QUORUM_ENABLED`：生产必须为 `true`。
+- `WEB3_RPC_QUORUM_MAX_HEAD_LAG`：主备链头允许的最大高度差，默认 `2`；确认数始终采用两者较低高度。
 
-当前 quorum 覆盖充值扫块、确认前规范链检查、重组祖先搜索、所有通过 `Web3Service` 读取的交易 Receipt、热钱包的 `pending/latest` Nonce、`eth_getTransactionByHash` 交易存在性，以及 ETH/ERC-20 余额。余额查询先验证主、备节点在同一区块高度的规范哈希，再在该固定高度执行 `eth_getBalance` 或 `balanceOf`，避免两个节点各自的 `latest` 高度不同造成假分歧。因此提现余额预检、资产对账、nonce 分配、Outbox 恢复和最终结算都不会接受单节点结论。任何分歧或备用节点异常都会 fail-closed。当前仍未实现关键 RPC 的自动故障切换，链头、手续费和 Gas 估算也尚未形成完整 quorum。
+当前 quorum 覆盖链头与确认数、充值扫块、确认前规范链检查、重组祖先搜索、所有通过 `Web3Service` 读取的交易 Receipt、热钱包的 `pending/latest` Nonce、`eth_getTransactionByHash` 交易存在性，以及 ETH/ERC-20 余额。主备链头在允许差值内时使用较低高度，并再次验证该高度的规范区块哈希；超出阈值则 fail-closed。余额查询同样在固定规范高度执行，避免两个节点各自的 `latest` 不同造成假分歧。因此提现余额预检、资产对账、nonce 分配、Outbox 恢复和最终结算都不会接受单节点结论。当前仍未实现关键 RPC 的自动故障切换，手续费和 Gas 估算也尚未形成完整 quorum。
 
 4. 启动应用：
 
@@ -390,6 +391,7 @@ Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需
 - `wallet.rpc.nonce.pending.quorum.matches/mismatches/errors`、`wallet.rpc.nonce.latest.quorum.matches/mismatches/errors`；
 - `wallet.rpc.transaction.quorum.matches/mismatches/errors`；
 - `wallet.rpc.balance.native.quorum.matches/mismatches/errors`、`wallet.rpc.balance.erc20.quorum.matches/mismatches/errors`；
+- `wallet.rpc.head.quorum.accepted/mismatches/errors`、`wallet.rpc.head.quorum.lag`；
 - `wallet.outbox.backlog`、`wallet.withdraw.pending`、`wallet.nonce.gap`；
 - `wallet.hot_wallet.asset.balance`、`wallet.hot_wallet.gas.balance`；
 - `wallet.ledger.anomalies`、`wallet.reconciliation.differences`；

@@ -1,5 +1,6 @@
 package com.example.wallet.module.deposit.scanner;
 
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -10,10 +11,13 @@ import com.example.wallet.infrastructure.redis.RedisDistributedLock.LockHandle;
 import com.example.wallet.infrastructure.web3.RpcQuorumVerifier;
 import com.example.wallet.infrastructure.web3.Web3Properties;
 import com.example.wallet.module.asset.service.SupportedAssetService;
+import com.example.wallet.module.chain.entity.ChainBlockScanRecord;
 import com.example.wallet.module.deposit.config.DepositScanProperties;
 import com.example.wallet.module.wallet.mapper.CustodyDepositAddressMapper;
 import com.example.wallet.module.monitoring.WalletOperationalMetrics;
+import java.math.BigInteger;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +25,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.Request;
+import org.web3j.protocol.core.methods.response.EthBlockNumber;
 
 @ExtendWith(MockitoExtension.class)
 class DepositBlockScannerLockTest {
@@ -76,5 +82,29 @@ class DepositBlockScannerLockTest {
         scanner.scan();
 
         verify(distributedLock).unlock(handle);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldUseConservativeQuorumHeadForDepositConfirmations() throws Exception {
+        ChainBlockScanRecord record = new ChainBlockScanRecord();
+        record.setLastScannedBlock(BigInteger.valueOf(100));
+        when(persistenceService.getOrCreateRecord()).thenReturn(record);
+        Request<?, EthBlockNumber> request = org.mockito.Mockito.mock(Request.class);
+        EthBlockNumber response = org.mockito.Mockito.mock(EthBlockNumber.class);
+        doReturn(request).when(web3j).ethBlockNumber();
+        when(request.send()).thenReturn(response);
+        when(response.getBlockNumber()).thenReturn(BigInteger.valueOf(112));
+        when(rpcQuorumVerifier.resolveConservativeBlockNumber(BigInteger.valueOf(112)))
+                .thenReturn(BigInteger.valueOf(100));
+        when(depositAddressMapper.selectActivePlatformDepositAddresses("ETH_SEPOLIA"))
+                .thenReturn(List.of());
+        when(persistenceService.listPendingOrders()).thenReturn(List.of());
+
+        scanner.scanOnce();
+
+        verify(rpcQuorumVerifier)
+                .resolveConservativeBlockNumber(BigInteger.valueOf(112));
+        verify(persistenceService).updateConfirmedBlock(BigInteger.valueOf(89));
     }
 }

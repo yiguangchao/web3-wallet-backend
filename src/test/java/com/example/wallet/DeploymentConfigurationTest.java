@@ -37,6 +37,8 @@ class DeploymentConfigurationTest {
 
         assertThat(production).contains("remote-url: ${WALLET_SIGNER_REMOTE_URL}");
         assertThat(production).contains("include: readinessState,db,redis,remoteSigner");
+        assertThat(production).contains(
+                "rpc-quorum-max-head-lag: ${WEB3_RPC_QUORUM_MAX_HEAD_LAG:2}");
         assertThat(production).contains("secret: ${JWT_SECRET}");
         assertThat(production).contains("enabled: ${SWAGGER_ENABLED:false}");
         assertThat(production).doesNotContain("local-private-key");

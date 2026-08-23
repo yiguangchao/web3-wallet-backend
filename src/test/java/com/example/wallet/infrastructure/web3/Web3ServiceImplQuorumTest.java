@@ -17,6 +17,7 @@ import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthBlock;
+import org.web3j.protocol.core.methods.response.EthBlockNumber;
 import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
@@ -153,6 +154,33 @@ class Web3ServiceImplQuorumTest {
         assertThat(service.getErc20BalanceRaw(ADDRESS, ADDRESS)).isEqualTo(BigInteger.TEN);
         verify(quorum).verifyBlockHash(BLOCK_NUMBER, BLOCK_HASH);
         verify(quorum).verifyErc20Balance(ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void returnsConservativeVerifiedChainHead() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        BigInteger primaryHead = BigInteger.valueOf(100);
+        BigInteger conservativeHead = BigInteger.valueOf(99);
+        Request<?, EthBlockNumber> headRequest = mock(Request.class);
+        EthBlockNumber headResponse = mock(EthBlockNumber.class);
+        Request<?, EthBlock> blockRequest = mock(Request.class);
+        EthBlock blockResponse = mock(EthBlock.class);
+        EthBlock.Block block = new EthBlock.Block();
+        block.setHash(BLOCK_HASH);
+        doReturn(headRequest).when(web3j).ethBlockNumber();
+        when(headRequest.send()).thenReturn(headResponse);
+        when(headResponse.getBlockNumber()).thenReturn(primaryHead);
+        when(quorum.resolveConservativeBlockNumber(primaryHead)).thenReturn(conservativeHead);
+        doReturn(blockRequest).when(web3j).ethGetBlockByNumber(any(), eq(false));
+        when(blockRequest.send()).thenReturn(blockResponse);
+        when(blockResponse.getBlock()).thenReturn(block);
+
+        assertThat(service.getCurrentBlockNumber()).isEqualTo(conservativeHead);
+        verify(quorum).resolveConservativeBlockNumber(primaryHead);
+        verify(quorum).verifyBlockHash(conservativeHead, BLOCK_HASH);
     }
 
     @SuppressWarnings("unchecked")

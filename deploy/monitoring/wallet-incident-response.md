@@ -48,6 +48,10 @@ Pause automatic outbox recovery, withdrawal lifecycle decisions and manual relea
 
 Pause withdrawal preparation and do not close reconciliation differences for the affected wallet and asset. Preserve the fixed block number/hash, both `eth_getBalance` or `eth_call balanceOf` responses, token address and internal liability snapshot. Do not choose the larger or smaller balance, change internal balances or disable quorum. Verify the same block through a third independent archive-capable provider and determine whether either configured provider is lagging, pruned or on a non-canonical fork. Resume only after providers agree at a canonical block and affected withdrawal and reconciliation checks have been rerun.
 
+## RPC chain-head quorum failure
+
+Pause withdrawal, custody-sweep and manual-review confirmation decisions. Preserve both `eth_blockNumber` responses, the configured maximum lag, the conservative height and block hashes around the disputed range. Do not use the higher head, increase the lag limit during the incident or calculate confirmations from a single provider. Verify height and canonical hashes with a third independent provider, then replace or recover the unhealthy provider through the reviewed configuration process. Resume only after the configured providers remain within the approved lag and agree on the conservative block hash.
+
 ## Manual-review resolution
 
 One administrator submits a resolution proposal with evidence. A different administrator executes it. `CONFIRM` requires a successful canonical receipt with the configured confirmation count. `RELEASE` is rejected while the transaction is successful, pending or otherwise known by the RPC.

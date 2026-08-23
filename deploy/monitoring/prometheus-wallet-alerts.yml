@@ -115,6 +115,18 @@ groups:
         annotations:
           summary: Secondary RPC cannot verify an asset balance
           runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-balance-quorum-failure
+      - alert: WalletRpcHeadQuorumMismatch
+        expr: increase(wallet_rpc_head_quorum_mismatches_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Independent RPC chain heads exceed the permitted lag
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-chain-head-quorum-failure
+      - alert: WalletRpcHeadQuorumError
+        expr: increase(wallet_rpc_head_quorum_errors_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Secondary RPC cannot verify the current chain head
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-chain-head-quorum-failure
       - alert: WalletMonitoringCollectionFailure
         expr: increase(wallet_monitoring_collection_errors_total[5m]) > 0
         labels: { severity: warning }

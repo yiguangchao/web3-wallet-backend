@@ -18,6 +18,7 @@ import org.web3j.protocol.core.DefaultBlockParameterName;
 import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthBlock;
+import org.web3j.protocol.core.methods.response.EthBlockNumber;
 import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
@@ -44,6 +45,8 @@ class RpcQuorumVerifierTest {
         verifier.verifyTransactionPresence(TX_HASH, transaction(TX_HASH));
         verifier.verifyNativeBalance(ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
         verifier.verifyErc20Balance(ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+        assertThat(verifier.resolveConservativeBlockNumber(BLOCK_NUMBER))
+                .isEqualTo(BLOCK_NUMBER);
 
         verifyNoInteractions(secondary);
     }
@@ -318,6 +321,60 @@ class RpcQuorumVerifierTest {
                 .isEqualTo(1D);
     }
 
+    @Test
+    void acceptsMatchingChainHeads() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubBlockNumber(secondary, BLOCK_NUMBER, false);
+
+        assertThat(verifier.resolveConservativeBlockNumber(BLOCK_NUMBER))
+                .isEqualTo(BLOCK_NUMBER);
+        assertThat(counter(registry, "wallet.rpc.head.quorum.accepted")).isEqualTo(1D);
+        assertThat(registry.get("wallet.rpc.head.quorum.lag").gauge().value()).isZero();
+    }
+
+    @Test
+    void returnsLowerHeadWhenLagIsWithinLimit() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry, 2);
+        BigInteger secondaryHead = BLOCK_NUMBER.subtract(BigInteger.TWO);
+        stubBlockNumber(secondary, secondaryHead, false);
+
+        assertThat(verifier.resolveConservativeBlockNumber(BLOCK_NUMBER))
+                .isEqualTo(secondaryHead);
+        assertThat(registry.get("wallet.rpc.head.quorum.lag").gauge().value())
+                .isEqualTo(2D);
+    }
+
+    @Test
+    void rejectsChainHeadLagBeyondLimit() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry, 2);
+        stubBlockNumber(secondary, BLOCK_NUMBER.subtract(BigInteger.valueOf(3)), false);
+
+        assertThatThrownBy(() -> verifier.resolveConservativeBlockNumber(BLOCK_NUMBER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RPC chain head quorum lag exceeds limit");
+        assertThat(counter(registry, "wallet.rpc.head.quorum.mismatches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsSecondaryChainHeadRpcError() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubBlockNumber(secondary, null, true);
+
+        assertThatThrownBy(() -> verifier.resolveConservativeBlockNumber(BLOCK_NUMBER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC could not verify chain head");
+        assertThat(counter(registry, "wallet.rpc.head.quorum.errors")).isEqualTo(1D);
+    }
+
     @SuppressWarnings("unchecked")
     private void stubReceipt(Web3j secondary, TransactionReceipt receipt) throws Exception {
         Request<?, EthGetTransactionReceipt> request = mock(Request.class);
@@ -369,6 +426,17 @@ class RpcQuorumVerifierTest {
         when(request.send()).thenReturn(response);
         when(response.hasError()).thenReturn(hasError);
         when(response.getValue()).thenReturn(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubBlockNumber(Web3j secondary, BigInteger blockNumber,
+                                 boolean hasError) throws Exception {
+        Request<?, EthBlockNumber> request = mock(Request.class);
+        EthBlockNumber response = mock(EthBlockNumber.class);
+        doReturn(request).when(secondary).ethBlockNumber();
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getBlockNumber()).thenReturn(blockNumber);
     }
 
     private String uint256(BigInteger value) {
