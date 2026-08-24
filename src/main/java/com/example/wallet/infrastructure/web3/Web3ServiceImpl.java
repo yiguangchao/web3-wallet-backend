@@ -158,10 +158,13 @@ public class Web3ServiceImpl implements Web3Service {
     @Override
     public Eip1559FeeSuggestion getEip1559FeeSuggestion() {
         try {
-            var blockResponse = web3j.ethGetBlockByNumber(DefaultBlockParameterName.LATEST, false).send();
+            BigInteger blockNumber = getCurrentBlockNumber();
+            var blockResponse = web3j.ethGetBlockByNumber(
+                    DefaultBlockParameter.valueOf(blockNumber), false).send();
             if (blockResponse.hasError() || blockResponse.getBlock() == null
+                    || !validTxHash(blockResponse.getBlock().getHash())
                     || blockResponse.getBlock().getBaseFeePerGas() == null) {
-                throw new BizException("latest block does not provide EIP-1559 base fee");
+                throw new BizException("verified block does not provide EIP-1559 base fee");
             }
             var priorityResponse = web3j.ethMaxPriorityFeePerGas().send();
             if (priorityResponse.hasError()) {
@@ -172,8 +175,8 @@ public class Web3ServiceImpl implements Web3Service {
             if (baseFee.signum() < 0 || priorityFee == null || priorityFee.signum() <= 0) {
                 throw new BizException("RPC returned invalid EIP-1559 fees");
             }
-            return new Eip1559FeeSuggestion(
-                    baseFee, priorityFee, baseFee.multiply(BigInteger.TWO).add(priorityFee));
+            return rpcQuorumVerifier.resolveEip1559FeeSuggestion(
+                    blockNumber, blockResponse.getBlock().getHash(), baseFee, priorityFee);
         } catch (BizException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -194,7 +197,11 @@ public class Web3ServiceImpl implements Web3Service {
             if (response.hasError()) {
                 throw new BizException("estimate gas failed: " + response.getError().getMessage());
             }
-            return response.getAmountUsed();
+            BigInteger primaryEstimate = response.getAmountUsed();
+            if (primaryEstimate == null || primaryEstimate.signum() <= 0) {
+                throw new BizException("primary RPC returned an invalid gas estimate");
+            }
+            return rpcQuorumVerifier.resolveGasEstimate(transaction, primaryEstimate);
         } catch (BizException ex) {
             throw ex;
         } catch (Exception ex) {

@@ -18,10 +18,12 @@ import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthBlock;
 import org.web3j.protocol.core.methods.response.EthBlockNumber;
+import org.web3j.protocol.core.methods.response.EthEstimateGas;
 import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthTransaction;
+import org.web3j.protocol.core.methods.response.EthMaxPriorityFeePerGas;
 import org.web3j.protocol.core.methods.response.Transaction;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 
@@ -181,6 +183,69 @@ class Web3ServiceImplQuorumTest {
         assertThat(service.getCurrentBlockNumber()).isEqualTo(conservativeHead);
         verify(quorum).resolveConservativeBlockNumber(primaryHead);
         verify(quorum).verifyBlockHash(conservativeHead, BLOCK_HASH);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void delegatesEip1559SuggestionToQuorumAtAConservativeBlock() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        BigInteger baseFee = BigInteger.TEN;
+        BigInteger priorityFee = BigInteger.TWO;
+        Eip1559FeeSuggestion verified = new Eip1559FeeSuggestion(
+                baseFee, priorityFee, BigInteger.valueOf(22));
+
+        Request<?, EthBlockNumber> headRequest = mock(Request.class);
+        EthBlockNumber headResponse = mock(EthBlockNumber.class);
+        doReturn(headRequest).when(web3j).ethBlockNumber();
+        when(headRequest.send()).thenReturn(headResponse);
+        when(headResponse.getBlockNumber()).thenReturn(BLOCK_NUMBER);
+        when(quorum.resolveConservativeBlockNumber(BLOCK_NUMBER)).thenReturn(BLOCK_NUMBER);
+
+        Request<?, EthBlock> blockRequest = mock(Request.class);
+        EthBlock blockResponse = mock(EthBlock.class);
+        EthBlock.Block block = new EthBlock.Block();
+        block.setHash(BLOCK_HASH);
+        block.setBaseFeePerGas("0x" + baseFee.toString(16));
+        doReturn(blockRequest).when(web3j).ethGetBlockByNumber(any(), eq(false));
+        when(blockRequest.send()).thenReturn(blockResponse);
+        when(blockResponse.getBlock()).thenReturn(block);
+
+        Request<?, EthMaxPriorityFeePerGas> priorityRequest = mock(Request.class);
+        EthMaxPriorityFeePerGas priorityResponse = mock(EthMaxPriorityFeePerGas.class);
+        doReturn(priorityRequest).when(web3j).ethMaxPriorityFeePerGas();
+        when(priorityRequest.send()).thenReturn(priorityResponse);
+        when(priorityResponse.getMaxPriorityFeePerGas()).thenReturn(priorityFee);
+        when(quorum.resolveEip1559FeeSuggestion(
+                BLOCK_NUMBER, BLOCK_HASH, baseFee, priorityFee)).thenReturn(verified);
+
+        assertThat(service.getEip1559FeeSuggestion()).isSameAs(verified);
+        verify(quorum).verifyBlockHash(BLOCK_NUMBER, BLOCK_HASH);
+        verify(quorum).resolveEip1559FeeSuggestion(
+                BLOCK_NUMBER, BLOCK_HASH, baseFee, priorityFee);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void delegatesGasEstimateToQuorumBeforeReturningIt() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        BigInteger primaryEstimate = BigInteger.valueOf(21_000);
+        BigInteger verifiedEstimate = BigInteger.valueOf(25_000);
+        Request<?, EthEstimateGas> request = mock(Request.class);
+        EthEstimateGas response = mock(EthEstimateGas.class);
+        doReturn(request).when(web3j).ethEstimateGas(any());
+        when(request.send()).thenReturn(response);
+        when(response.getAmountUsed()).thenReturn(primaryEstimate);
+        when(quorum.resolveGasEstimate(any(), eq(primaryEstimate)))
+                .thenReturn(verifiedEstimate);
+
+        EvmTransactionRequest transaction = new EvmTransactionRequest(
+                ADDRESS, ADDRESS, BigInteger.ZERO, "0x");
+        assertThat(service.estimateGas(transaction)).isEqualTo(verifiedEstimate);
+        verify(quorum).resolveGasEstimate(any(), eq(primaryEstimate));
     }
 
     @SuppressWarnings("unchecked")

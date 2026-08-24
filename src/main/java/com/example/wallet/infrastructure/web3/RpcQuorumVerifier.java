@@ -57,6 +57,13 @@ public class RpcQuorumVerifier {
     private final Counter headAccepted;
     private final Counter headMismatches;
     private final Counter headErrors;
+    private final Counter feeAccepted;
+    private final Counter feeMismatches;
+    private final Counter feeErrors;
+    private final Counter secondaryPriorityFeeSelected;
+    private final Counter gasEstimateAccepted;
+    private final Counter secondaryGasEstimateSelected;
+    private final Counter gasEstimateErrors;
 
     @Autowired
     public RpcQuorumVerifier(Web3Properties properties, OkHttpClient web3HttpClient,
@@ -109,6 +116,16 @@ public class RpcQuorumVerifier {
         this.headAccepted = registry.counter("wallet.rpc.head.quorum.accepted");
         this.headMismatches = registry.counter("wallet.rpc.head.quorum.mismatches");
         this.headErrors = registry.counter("wallet.rpc.head.quorum.errors");
+        this.feeAccepted = registry.counter("wallet.rpc.fee.quorum.accepted");
+        this.feeMismatches = registry.counter("wallet.rpc.fee.quorum.mismatches");
+        this.feeErrors = registry.counter("wallet.rpc.fee.quorum.errors");
+        this.secondaryPriorityFeeSelected =
+                registry.counter("wallet.rpc.fee.quorum.secondary.priority.selected");
+        this.gasEstimateAccepted =
+                registry.counter("wallet.rpc.gas.estimate.quorum.accepted");
+        this.secondaryGasEstimateSelected =
+                registry.counter("wallet.rpc.gas.estimate.quorum.secondary.selected");
+        this.gasEstimateErrors = registry.counter("wallet.rpc.gas.estimate.quorum.errors");
     }
 
     public BigInteger resolveConservativeBlockNumber(BigInteger primaryHead) {
@@ -340,6 +357,111 @@ public class RpcQuorumVerifier {
         }
     }
 
+    public Eip1559FeeSuggestion resolveEip1559FeeSuggestion(
+            BigInteger blockNumber, String primaryBlockHash, BigInteger primaryBaseFee,
+            BigInteger primaryPriorityFee) {
+        validateFeeSuggestion(
+                blockNumber, primaryBlockHash, primaryBaseFee, primaryPriorityFee);
+        if (!enabled) {
+            return feeSuggestion(primaryBaseFee, primaryPriorityFee);
+        }
+        try {
+            var blockResponse = secondaryWeb3j.ethGetBlockByNumber(
+                    DefaultBlockParameter.valueOf(blockNumber), false).send();
+            if (blockResponse.hasError() || blockResponse.getBlock() == null) {
+                feeErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC could not verify EIP-1559 base fee");
+            }
+            String secondaryBlockHash = blockResponse.getBlock().getHash();
+            BigInteger secondaryBaseFee = blockResponse.getBlock().getBaseFeePerGas();
+            if (!isHash(secondaryBlockHash) || secondaryBaseFee == null
+                    || secondaryBaseFee.signum() < 0) {
+                feeErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid EIP-1559 base fee");
+            }
+            if (!primaryBlockHash.equalsIgnoreCase(secondaryBlockHash)
+                    || !primaryBaseFee.equals(secondaryBaseFee)) {
+                feeMismatches.increment();
+                throw new IllegalStateException("RPC EIP-1559 base fee quorum mismatch");
+            }
+
+            var priorityResponse = secondaryWeb3j.ethMaxPriorityFeePerGas().send();
+            if (priorityResponse.hasError()) {
+                feeErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC could not provide an EIP-1559 priority fee");
+            }
+            BigInteger secondaryPriorityFee;
+            try {
+                secondaryPriorityFee = priorityResponse.getMaxPriorityFeePerGas();
+            } catch (RuntimeException ex) {
+                feeErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid EIP-1559 priority fee", ex);
+            }
+            if (secondaryPriorityFee == null || secondaryPriorityFee.signum() <= 0) {
+                feeErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid EIP-1559 priority fee");
+            }
+            BigInteger selectedPriorityFee = primaryPriorityFee.max(secondaryPriorityFee);
+            if (selectedPriorityFee.equals(secondaryPriorityFee)
+                    && secondaryPriorityFee.compareTo(primaryPriorityFee) > 0) {
+                secondaryPriorityFeeSelected.increment();
+            }
+            feeAccepted.increment();
+            return feeSuggestion(primaryBaseFee, selectedPriorityFee);
+        } catch (IOException ex) {
+            feeErrors.increment();
+            throw new IllegalStateException(
+                    "secondary RPC could not verify EIP-1559 fees", ex);
+        }
+    }
+
+    public BigInteger resolveGasEstimate(
+            org.web3j.protocol.core.methods.request.Transaction transaction,
+            BigInteger primaryEstimate) {
+        if (transaction == null || primaryEstimate == null || primaryEstimate.signum() <= 0) {
+            throw new IllegalArgumentException("primary RPC returned an invalid gas estimate");
+        }
+        if (!enabled) {
+            return primaryEstimate;
+        }
+        try {
+            var response = secondaryWeb3j.ethEstimateGas(transaction).send();
+            if (response.hasError()) {
+                gasEstimateErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC could not provide a gas estimate");
+            }
+            BigInteger secondaryEstimate;
+            try {
+                secondaryEstimate = response.getAmountUsed();
+            } catch (RuntimeException ex) {
+                gasEstimateErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid gas estimate", ex);
+            }
+            if (secondaryEstimate == null || secondaryEstimate.signum() <= 0) {
+                gasEstimateErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an invalid gas estimate");
+            }
+            BigInteger selectedEstimate = primaryEstimate.max(secondaryEstimate);
+            if (secondaryEstimate.compareTo(primaryEstimate) > 0) {
+                secondaryGasEstimateSelected.increment();
+            }
+            gasEstimateAccepted.increment();
+            return selectedEstimate;
+        } catch (IOException ex) {
+            gasEstimateErrors.increment();
+            throw new IllegalStateException(
+                    "secondary RPC could not provide a gas estimate", ex);
+        }
+    }
+
     private boolean sameReceipt(String txHash, TransactionReceipt primary,
                                 TransactionReceipt secondary) {
         if (primary == null || secondary == null) {
@@ -402,6 +524,21 @@ public class RpcQuorumVerifier {
                 || primaryBalance == null || primaryBalance.signum() < 0) {
             throw new IllegalArgumentException("primary RPC returned an invalid balance identity");
         }
+    }
+
+    private void validateFeeSuggestion(BigInteger blockNumber, String blockHash,
+                                       BigInteger baseFee, BigInteger priorityFee) {
+        if (blockNumber == null || blockNumber.signum() < 0 || !isHash(blockHash)
+                || baseFee == null || baseFee.signum() < 0
+                || priorityFee == null || priorityFee.signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "primary RPC returned an invalid EIP-1559 fee suggestion");
+        }
+    }
+
+    private Eip1559FeeSuggestion feeSuggestion(BigInteger baseFee, BigInteger priorityFee) {
+        return new Eip1559FeeSuggestion(
+                baseFee, priorityFee, baseFee.multiply(BigInteger.TWO).add(priorityFee));
     }
 
     private boolean equalsIgnoreCase(String left, String right) {

@@ -127,6 +127,24 @@ groups:
         annotations:
           summary: Secondary RPC cannot verify the current chain head
           runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-chain-head-quorum-failure
+      - alert: WalletRpcFeeQuorumMismatch
+        expr: increase(wallet_rpc_fee_quorum_mismatches_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Independent RPC providers disagree on the canonical EIP-1559 base fee
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-fee-and-gas-quorum-failure
+      - alert: WalletRpcFeeQuorumError
+        expr: increase(wallet_rpc_fee_quorum_errors_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Secondary RPC cannot verify EIP-1559 fee inputs
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-fee-and-gas-quorum-failure
+      - alert: WalletRpcGasEstimateQuorumError
+        expr: increase(wallet_rpc_gas_estimate_quorum_errors_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Secondary RPC cannot provide a valid gas estimate
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-fee-and-gas-quorum-failure
       - alert: WalletMonitoringCollectionFailure
         expr: increase(wallet_monitoring_collection_errors_total[5m]) > 0
         labels: { severity: warning }

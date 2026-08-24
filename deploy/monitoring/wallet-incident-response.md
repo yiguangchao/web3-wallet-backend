@@ -52,6 +52,10 @@ Pause withdrawal preparation and do not close reconciliation differences for the
 
 Pause withdrawal, custody-sweep and manual-review confirmation decisions. Preserve both `eth_blockNumber` responses, the configured maximum lag, the conservative height and block hashes around the disputed range. Do not use the higher head, increase the lag limit during the incident or calculate confirmations from a single provider. Verify height and canonical hashes with a third independent provider, then replace or recover the unhealthy provider through the reviewed configuration process. Resume only after the configured providers remain within the approved lag and agree on the conservative block hash.
 
+## RPC fee and gas quorum failure
+
+Pause new withdrawal preparation and signing. Preserve the fixed block number and hash, both base-fee and priority-fee responses, both gas estimates and the complete unsigned transaction request. A base-fee or block-hash difference is a canonical-state disagreement and must not be bypassed. Do not select a lower fee or gas estimate manually, disable quorum, or raise the configured gas and total-fee caps during the incident. Verify the same block and transaction through a third independent provider, identify the unhealthy or lagging provider, and rerun every affected withdrawal preparation. Resume only after the configured providers agree on canonical block inputs and both return valid estimates within the reviewed safety caps.
+
 ## Manual-review resolution
 
 One administrator submits a resolution proposal with evidence. A different administrator executes it. `CONFIRM` requires a successful canonical receipt with the configured confirmation count. `RELEASE` is rejected while the transaction is successful, pending or otherwise known by the RPC.

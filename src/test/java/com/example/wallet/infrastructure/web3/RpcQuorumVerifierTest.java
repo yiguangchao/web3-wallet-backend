@@ -19,9 +19,11 @@ import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthBlock;
 import org.web3j.protocol.core.methods.response.EthBlockNumber;
+import org.web3j.protocol.core.methods.response.EthEstimateGas;
 import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
+import org.web3j.protocol.core.methods.response.EthMaxPriorityFeePerGas;
 import org.web3j.protocol.core.methods.response.EthTransaction;
 import org.web3j.protocol.core.methods.response.Transaction;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
@@ -47,6 +49,12 @@ class RpcQuorumVerifierTest {
         verifier.verifyErc20Balance(ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
         assertThat(verifier.resolveConservativeBlockNumber(BLOCK_NUMBER))
                 .isEqualTo(BLOCK_NUMBER);
+        assertThat(verifier.resolveEip1559FeeSuggestion(
+                BLOCK_NUMBER, BLOCK_HASH, BigInteger.TEN, BigInteger.ONE))
+                .isEqualTo(new Eip1559FeeSuggestion(
+                        BigInteger.TEN, BigInteger.ONE, BigInteger.valueOf(21)));
+        assertThat(verifier.resolveGasEstimate(gasTransaction(), BigInteger.valueOf(21_000)))
+                .isEqualTo(BigInteger.valueOf(21_000));
 
         verifyNoInteractions(secondary);
     }
@@ -375,6 +383,96 @@ class RpcQuorumVerifierTest {
         assertThat(counter(registry, "wallet.rpc.head.quorum.errors")).isEqualTo(1D);
     }
 
+    @Test
+    void selectsHigherSecondaryPriorityFeeAfterVerifyingCanonicalBaseFee() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubFeeSuggestion(
+                secondary, BLOCK_HASH, BigInteger.TEN, BigInteger.valueOf(3), false);
+
+        Eip1559FeeSuggestion suggestion = verifier.resolveEip1559FeeSuggestion(
+                BLOCK_NUMBER, BLOCK_HASH, BigInteger.TEN, BigInteger.ONE);
+
+        assertThat(suggestion).isEqualTo(new Eip1559FeeSuggestion(
+                BigInteger.TEN, BigInteger.valueOf(3), BigInteger.valueOf(23)));
+        assertThat(counter(registry, "wallet.rpc.fee.quorum.accepted")).isEqualTo(1D);
+        assertThat(counter(
+                registry, "wallet.rpc.fee.quorum.secondary.priority.selected")).isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsEip1559BaseFeeDisagreementAtSameBlock() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubFeeSuggestion(
+                secondary, BLOCK_HASH, BigInteger.valueOf(11), BigInteger.ONE, false);
+
+        assertThatThrownBy(() -> verifier.resolveEip1559FeeSuggestion(
+                BLOCK_NUMBER, BLOCK_HASH, BigInteger.TEN, BigInteger.ONE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("RPC EIP-1559 base fee quorum mismatch");
+        assertThat(counter(registry, "wallet.rpc.fee.quorum.mismatches")).isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsSecondaryPriorityFeeRpcError() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubFeeSuggestion(secondary, BLOCK_HASH, BigInteger.TEN, null, true);
+
+        assertThatThrownBy(() -> verifier.resolveEip1559FeeSuggestion(
+                BLOCK_NUMBER, BLOCK_HASH, BigInteger.TEN, BigInteger.ONE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC could not provide an EIP-1559 priority fee");
+        assertThat(counter(registry, "wallet.rpc.fee.quorum.errors")).isEqualTo(1D);
+    }
+
+    @Test
+    void selectsHigherSecondaryGasEstimate() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubGasEstimate(secondary, BigInteger.valueOf(25_000), false);
+
+        assertThat(verifier.resolveGasEstimate(gasTransaction(), BigInteger.valueOf(21_000)))
+                .isEqualTo(BigInteger.valueOf(25_000));
+        assertThat(counter(registry, "wallet.rpc.gas.estimate.quorum.accepted"))
+                .isEqualTo(1D);
+        assertThat(counter(registry, "wallet.rpc.gas.estimate.quorum.secondary.selected"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void keepsHigherPrimaryGasEstimate() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubGasEstimate(secondary, BigInteger.valueOf(20_000), false);
+
+        assertThat(verifier.resolveGasEstimate(gasTransaction(), BigInteger.valueOf(21_000)))
+                .isEqualTo(BigInteger.valueOf(21_000));
+        assertThat(counter(registry, "wallet.rpc.gas.estimate.quorum.secondary.selected"))
+                .isZero();
+    }
+
+    @Test
+    void rejectsInvalidSecondaryGasEstimate() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubGasEstimate(secondary, BigInteger.ZERO, false);
+
+        assertThatThrownBy(() -> verifier.resolveGasEstimate(
+                gasTransaction(), BigInteger.valueOf(21_000)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC returned an invalid gas estimate");
+        assertThat(counter(registry, "wallet.rpc.gas.estimate.quorum.errors"))
+                .isEqualTo(1D);
+    }
+
     @SuppressWarnings("unchecked")
     private void stubReceipt(Web3j secondary, TransactionReceipt receipt) throws Exception {
         Request<?, EthGetTransactionReceipt> request = mock(Request.class);
@@ -439,6 +537,37 @@ class RpcQuorumVerifierTest {
         when(response.getBlockNumber()).thenReturn(blockNumber);
     }
 
+    @SuppressWarnings("unchecked")
+    private void stubFeeSuggestion(Web3j secondary, String blockHash, BigInteger baseFee,
+                                   BigInteger priorityFee, boolean priorityHasError)
+            throws Exception {
+        Request<?, EthBlock> blockRequest = mock(Request.class);
+        EthBlock blockResponse = mock(EthBlock.class);
+        EthBlock.Block feeBlock = block(blockHash);
+        feeBlock.setBaseFeePerGas("0x" + baseFee.toString(16));
+        doReturn(blockRequest).when(secondary).ethGetBlockByNumber(any(), eq(false));
+        when(blockRequest.send()).thenReturn(blockResponse);
+        when(blockResponse.getBlock()).thenReturn(feeBlock);
+
+        Request<?, EthMaxPriorityFeePerGas> priorityRequest = mock(Request.class);
+        EthMaxPriorityFeePerGas priorityResponse = mock(EthMaxPriorityFeePerGas.class);
+        doReturn(priorityRequest).when(secondary).ethMaxPriorityFeePerGas();
+        when(priorityRequest.send()).thenReturn(priorityResponse);
+        when(priorityResponse.hasError()).thenReturn(priorityHasError);
+        when(priorityResponse.getMaxPriorityFeePerGas()).thenReturn(priorityFee);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubGasEstimate(Web3j secondary, BigInteger gasEstimate,
+                                 boolean hasError) throws Exception {
+        Request<?, EthEstimateGas> request = mock(Request.class);
+        EthEstimateGas response = mock(EthEstimateGas.class);
+        doReturn(request).when(secondary).ethEstimateGas(any());
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getAmountUsed()).thenReturn(gasEstimate);
+    }
+
     private String uint256(BigInteger value) {
         return "0x" + String.format("%064x", value);
     }
@@ -447,6 +576,11 @@ class RpcQuorumVerifierTest {
         Transaction transaction = mock(Transaction.class);
         when(transaction.getHash()).thenReturn(hash);
         return transaction;
+    }
+
+    private org.web3j.protocol.core.methods.request.Transaction gasTransaction() {
+        return org.web3j.protocol.core.methods.request.Transaction
+                .createEthCallTransaction(ADDRESS, ADDRESS, "0x");
     }
 
     private TransactionReceipt receipt(String status) {
