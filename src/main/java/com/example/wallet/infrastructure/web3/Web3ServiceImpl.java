@@ -6,6 +6,7 @@ import java.math.BigInteger;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.web3j.crypto.Hash;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.FunctionReturnDecoder;
 import org.web3j.abi.TypeReference;
@@ -242,16 +243,38 @@ public class Web3ServiceImpl implements Web3Service {
         if (!StringUtils.hasText(rawTransaction) || !Numeric.containsHexPrefix(rawTransaction)) {
             throw new BizException("raw transaction is invalid");
         }
+        String expectedTxHash = calculateTransactionHash(rawTransaction);
+        Exception primaryFailure;
         try {
             EthSendTransaction response = web3j.ethSendRawTransaction(rawTransaction).send();
             if (response.hasError()) {
-                throw new BizException("broadcast transaction failed: " + response.getError().getMessage());
+                primaryFailure = new IllegalStateException(
+                        "primary RPC rejected transaction broadcast: "
+                                + response.getError().getMessage());
+            } else {
+                String rpcHash = response.getTransactionHash();
+                if (!validTxHash(rpcHash) || !expectedTxHash.equalsIgnoreCase(rpcHash)) {
+                    throw new BizException(
+                            "primary RPC returned an unexpected transaction hash");
+                }
+                return expectedTxHash;
             }
-            return response.getTransactionHash();
         } catch (BizException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new BizException("broadcast transaction failed: " + ex.getMessage());
+            primaryFailure = ex;
+        }
+        if (!rpcQuorumVerifier.isEnabled()) {
+            throw new BizException("broadcast transaction failed: " + primaryFailure.getMessage());
+        }
+        try {
+            return rpcQuorumVerifier.broadcastRawTransactionOnSecondary(
+                    rawTransaction, expectedTxHash);
+        } catch (Exception fallbackFailure) {
+            throw new BizException(
+                    "broadcast transaction failed on primary RPC: "
+                            + primaryFailure.getMessage()
+                            + "; secondary RPC: " + fallbackFailure.getMessage());
         }
     }
 
@@ -329,6 +352,18 @@ public class Web3ServiceImpl implements Web3Service {
 
     private boolean validTxHash(String txHash) {
         return txHash != null && txHash.matches("^0x[0-9a-fA-F]{64}$");
+    }
+
+    private String calculateTransactionHash(String rawTransaction) {
+        try {
+            byte[] encoded = Numeric.hexStringToByteArray(rawTransaction);
+            if (encoded.length == 0) {
+                throw new IllegalArgumentException("empty transaction");
+            }
+            return Numeric.toHexString(Hash.sha3(encoded));
+        } catch (RuntimeException ex) {
+            throw new BizException("raw transaction is invalid");
+        }
     }
 
     private BigInteger queryNativeBalanceWei(String address) throws Exception {

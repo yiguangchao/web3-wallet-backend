@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -24,8 +25,11 @@ import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthTransaction;
 import org.web3j.protocol.core.methods.response.EthMaxPriorityFeePerGas;
+import org.web3j.protocol.core.methods.response.EthSendTransaction;
 import org.web3j.protocol.core.methods.response.Transaction;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
+import org.web3j.crypto.Hash;
+import org.web3j.utils.Numeric;
 
 class Web3ServiceImplQuorumTest {
     private static final String TX_HASH = "0x" + "1".repeat(64);
@@ -248,6 +252,63 @@ class Web3ServiceImplQuorumTest {
         verify(quorum).resolveGasEstimate(any(), eq(primaryEstimate));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void returnsLocallyCalculatedHashWhenPrimaryBroadcastAcceptsTransaction() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        String rawTransaction = "0x01";
+        String expectedHash = transactionHash(rawTransaction);
+        Request<?, EthSendTransaction> request = mock(Request.class);
+        EthSendTransaction response = mock(EthSendTransaction.class);
+        doReturn(request).when(web3j).ethSendRawTransaction(rawTransaction);
+        when(request.send()).thenReturn(response);
+        when(response.getTransactionHash()).thenReturn(expectedHash);
+
+        assertThat(service.broadcastRawTransaction(rawTransaction)).isEqualTo(expectedHash);
+        verify(quorum, never()).broadcastRawTransactionOnSecondary(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fallsBackToSecondaryWithTheSameRawTransactionAfterPrimaryError() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        String rawTransaction = "0x01";
+        String expectedHash = transactionHash(rawTransaction);
+        Request<?, EthSendTransaction> request = mock(Request.class);
+        doReturn(request).when(web3j).ethSendRawTransaction(rawTransaction);
+        when(request.send()).thenThrow(new java.io.IOException("primary timeout"));
+        when(quorum.isEnabled()).thenReturn(true);
+        when(quorum.broadcastRawTransactionOnSecondary(rawTransaction, expectedHash))
+                .thenReturn(expectedHash);
+
+        assertThat(service.broadcastRawTransaction(rawTransaction)).isEqualTo(expectedHash);
+        verify(quorum).broadcastRawTransactionOnSecondary(rawTransaction, expectedHash);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsUnexpectedPrimaryHashWithoutTryingToHideItThroughFallback() throws Exception {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+        String rawTransaction = "0x01";
+        Request<?, EthSendTransaction> request = mock(Request.class);
+        EthSendTransaction response = mock(EthSendTransaction.class);
+        doReturn(request).when(web3j).ethSendRawTransaction(rawTransaction);
+        when(request.send()).thenReturn(response);
+        when(response.getTransactionHash()).thenReturn("0x" + "f".repeat(64));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.broadcastRawTransaction(rawTransaction))
+                .isInstanceOf(com.example.wallet.common.exception.BizException.class)
+                .hasMessage("primary RPC returned an unexpected transaction hash");
+        verify(quorum, never()).broadcastRawTransactionOnSecondary(any(), any());
+    }
+
     @SuppressWarnings("unchecked")
     private void stubLatestBlock(Web3j web3j) throws Exception {
         Request<?, EthBlock> request = mock(Request.class);
@@ -263,5 +324,9 @@ class Web3ServiceImplQuorumTest {
 
     private String uint256(BigInteger value) {
         return "0x" + String.format("%064x", value);
+    }
+
+    private String transactionHash(String rawTransaction) {
+        return Numeric.toHexString(Hash.sha3(Numeric.hexStringToByteArray(rawTransaction)));
     }
 }

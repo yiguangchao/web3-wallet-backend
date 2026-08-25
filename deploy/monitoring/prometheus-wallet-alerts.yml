@@ -145,6 +145,18 @@ groups:
         annotations:
           summary: Secondary RPC cannot provide a valid gas estimate
           runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-fee-and-gas-quorum-failure
+      - alert: WalletRpcBroadcastFallbackUsed
+        expr: increase(wallet_rpc_broadcast_fallback_attempts_total[5m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: Raw transaction broadcast required the secondary RPC
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-broadcast-fallback
+      - alert: WalletRpcBroadcastFallbackFailure
+        expr: increase(wallet_rpc_broadcast_fallback_errors_total[5m]) + increase(wallet_rpc_broadcast_fallback_hash_mismatches_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Secondary RPC broadcast failed or returned an unexpected transaction hash
+          runbook_url: deploy/monitoring/wallet-incident-response.md#rpc-broadcast-fallback
       - alert: WalletMonitoringCollectionFailure
         expr: increase(wallet_monitoring_collection_errors_total[5m]) > 0
         labels: { severity: warning }

@@ -24,6 +24,7 @@ import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.EthGetTransactionCount;
 import org.web3j.protocol.core.methods.response.EthMaxPriorityFeePerGas;
+import org.web3j.protocol.core.methods.response.EthSendTransaction;
 import org.web3j.protocol.core.methods.response.EthTransaction;
 import org.web3j.protocol.core.methods.response.Transaction;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
@@ -473,6 +474,49 @@ class RpcQuorumVerifierTest {
                 .isEqualTo(1D);
     }
 
+    @Test
+    void acceptsSecondaryBroadcastOnlyWhenHashMatchesLocallyCalculatedHash() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubBroadcast(secondary, TX_HASH, false);
+
+        assertThat(verifier.broadcastRawTransactionOnSecondary("0x01", TX_HASH))
+                .isEqualTo(TX_HASH);
+        assertThat(counter(registry, "wallet.rpc.broadcast.fallback.attempts"))
+                .isEqualTo(1D);
+        assertThat(counter(registry, "wallet.rpc.broadcast.fallback.accepted"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsUnexpectedSecondaryBroadcastHash() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubBroadcast(secondary, "0x" + "3".repeat(64), false);
+
+        assertThatThrownBy(() -> verifier.broadcastRawTransactionOnSecondary("0x01", TX_HASH))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC returned an unexpected transaction hash");
+        assertThat(counter(registry, "wallet.rpc.broadcast.fallback.hash.mismatches"))
+                .isEqualTo(1D);
+    }
+
+    @Test
+    void recordsSecondaryBroadcastRpcErrors() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubBroadcast(secondary, null, true);
+
+        assertThatThrownBy(() -> verifier.broadcastRawTransactionOnSecondary("0x01", TX_HASH))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC rejected transaction broadcast");
+        assertThat(counter(registry, "wallet.rpc.broadcast.fallback.errors"))
+                .isEqualTo(1D);
+    }
+
     @SuppressWarnings("unchecked")
     private void stubReceipt(Web3j secondary, TransactionReceipt receipt) throws Exception {
         Request<?, EthGetTransactionReceipt> request = mock(Request.class);
@@ -566,6 +610,17 @@ class RpcQuorumVerifierTest {
         when(request.send()).thenReturn(response);
         when(response.hasError()).thenReturn(hasError);
         when(response.getAmountUsed()).thenReturn(gasEstimate);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubBroadcast(Web3j secondary, String txHash, boolean hasError)
+            throws Exception {
+        Request<?, EthSendTransaction> request = mock(Request.class);
+        EthSendTransaction response = mock(EthSendTransaction.class);
+        doReturn(request).when(secondary).ethSendRawTransaction("0x01");
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getTransactionHash()).thenReturn(txHash);
     }
 
     private String uint256(BigInteger value) {

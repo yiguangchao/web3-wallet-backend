@@ -85,7 +85,7 @@ RPC 客户端统一应用连接、读写和总调用超时，并对网络异常�
 - `WEB3_BLOCK_HASH_QUORUM_ENABLED`：生产必须为 `true`。
 - `WEB3_RPC_QUORUM_MAX_HEAD_LAG`：主备链头允许的最大高度差，默认 `2`；确认数始终采用两者较低高度。
 
-当前 quorum 覆盖链头与确认数、充值扫块、确认前规范链检查、重组祖先搜索、所有通过 `Web3Service` 读取的交易 Receipt、热钱包的 `pending/latest` Nonce、`eth_getTransactionByHash` 交易存在性、ETH/ERC-20 余额、EIP-1559 手续费建议和 Gas 估算。主备链头在允许差值内时使用较低高度，并再次验证该高度的规范区块哈希；超出阈值则 fail-closed。余额和 EIP-1559 base fee 均在固定规范高度查询，避免两个节点各自的 `latest` 不同造成假分歧；规范 block hash 或 base fee 不一致时拒绝准备交易。priority fee 和 Gas estimate 属于节点估算值，允许不同但始终选择较大值，再由单笔 Gas 上限和总手续费上限约束。因此提现余额预检、交易准备、资产对账、nonce 分配、Outbox 恢复和最终结算都不会接受单节点结论。当前仍未实现关键 RPC 的自动安全故障切换。
+当前 quorum 覆盖链头与确认数、充值扫块、确认前规范链检查、重组祖先搜索、所有通过 `Web3Service` 读取的交易 Receipt、热钱包的 `pending/latest` Nonce、`eth_getTransactionByHash` 交易存在性、ETH/ERC-20 余额、EIP-1559 手续费建议和 Gas 估算。主备链头在允许差值内时使用较低高度，并再次验证该高度的规范区块哈希；超出阈值则 fail-closed。余额和 EIP-1559 base fee 均在固定规范高度查询，避免两个节点各自的 `latest` 不同造成假分歧；规范 block hash 或 base fee 不一致时拒绝准备交易。priority fee 和 Gas estimate 属于节点估算值，允许不同但始终选择较大值，再由单笔 Gas 上限和总手续费上限约束。因此提现余额预检、交易准备、资产对账、nonce 分配、Outbox 恢复和最终结算都不会接受单节点结论。已签名 raw transaction 在主 RPC 明确失败时允许向备用 RPC 安全重播同一不可变 payload，且两个节点返回的哈希都必须等于本地 Keccak-256 结果；其他关键读取仍未实现绕过 quorum 的自动切换。
 
 4. 启动应用：
 
@@ -314,7 +314,7 @@ $env:WALLET_WITHDRAW_ENABLED="true"
 
 `wallet_nonce` 按 `(chain_id, hot_wallet_address)` 保存下一可用 Nonce。分配时先用 `SELECT FOR UPDATE` 锁定提现订单和 Nonce 行，并取 `max(database next_nonce, chain pending nonce)`；订单通过 `(chain_id, hot_wallet_address, nonce)` 唯一约束保证一笔订单只拥有一个 Nonce，重复准备不会再次访问 RPC 或重新签名。
 
-`TransactionSigner` 是唯一签名入口。`LocalDevSigner` 只在 `dev`/`test` Profile 注册；其他 Profile 只注册 `RemoteSignerClient`。远程签名结果会在应用内重新解码并校验发送方、chainId、Nonce、Gas、接收方、金额和 data，同时以 `rawTransaction` 本地计算 `txHash`，不能信任远程服务声明的哈希。
+`TransactionSigner` 是唯一签名入口。`LocalDevSigner` 只在 `dev`/`test` Profile 注册；其他 Profile 只注册 `RemoteSignerClient`。远程签名结果会在应用内重新解码并校验发送方、chainId、Nonce、Gas、接收方、金额和 data，同时以 `rawTransaction` 本地计算 `txHash`，不能信任远程服务声明的哈希。广播阶段会再次本地计算哈希：主 RPC 成功但返回不同哈希时立即 fail-closed；只有主 RPC 明确报错或网络失败时，才把完全相同的 raw transaction 发送给备用 RPC，不重新签名、不分配新 Nonce。
 
 生产环境至少需要配置：
 
@@ -394,6 +394,7 @@ Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需
 - `wallet.rpc.head.quorum.accepted/mismatches/errors`、`wallet.rpc.head.quorum.lag`；
 - `wallet.rpc.fee.quorum.accepted/mismatches/errors`、`wallet.rpc.fee.quorum.secondary.priority.selected`；
 - `wallet.rpc.gas.estimate.quorum.accepted/errors`、`wallet.rpc.gas.estimate.quorum.secondary.selected`；
+- `wallet.rpc.broadcast.fallback.attempts/accepted/errors/hash.mismatches`；
 - `wallet.outbox.backlog`、`wallet.withdraw.pending`、`wallet.nonce.gap`；
 - `wallet.hot_wallet.asset.balance`、`wallet.hot_wallet.gas.balance`；
 - `wallet.ledger.anomalies`、`wallet.reconciliation.differences`；

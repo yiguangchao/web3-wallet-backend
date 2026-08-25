@@ -56,6 +56,10 @@ Pause withdrawal, custody-sweep and manual-review confirmation decisions. Preser
 
 Pause new withdrawal preparation and signing. Preserve the fixed block number and hash, both base-fee and priority-fee responses, both gas estimates and the complete unsigned transaction request. A base-fee or block-hash difference is a canonical-state disagreement and must not be bypassed. Do not select a lower fee or gas estimate manually, disable quorum, or raise the configured gas and total-fee caps during the incident. Verify the same block and transaction through a third independent provider, identify the unhealthy or lagging provider, and rerun every affected withdrawal preparation. Resume only after the configured providers agree on canonical block inputs and both return valid estimates within the reviewed safety caps.
 
+## RPC broadcast fallback
+
+Record the withdrawal, Outbox ID, locally calculated transaction hash, primary failure and secondary response. A successful fallback is still a primary-provider incident and must be investigated. Confirm that the exact stored raw transaction was sent to both providers and that no replacement payload or new nonce was created. If both broadcasts fail, do not construct another transaction; let the Outbox retry the same immutable payload and use the transaction-presence quorum before deciding it is absent. An unexpected returned hash is a critical integrity event: pause new signing, preserve both raw responses, verify the local Keccak-256 hash independently, and replace the faulty provider only through the reviewed configuration process.
+
 ## Manual-review resolution
 
 One administrator submits a resolution proposal with evidence. A different administrator executes it. `CONFIRM` requires a successful canonical receipt with the configured confirmation count. `RELEASE` is rejected while the transaction is successful, pending or otherwise known by the RPC.

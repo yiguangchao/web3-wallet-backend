@@ -64,6 +64,10 @@ public class RpcQuorumVerifier {
     private final Counter gasEstimateAccepted;
     private final Counter secondaryGasEstimateSelected;
     private final Counter gasEstimateErrors;
+    private final Counter broadcastFallbackAttempts;
+    private final Counter broadcastFallbackAccepted;
+    private final Counter broadcastFallbackErrors;
+    private final Counter broadcastFallbackHashMismatches;
 
     @Autowired
     public RpcQuorumVerifier(Web3Properties properties, OkHttpClient web3HttpClient,
@@ -126,6 +130,14 @@ public class RpcQuorumVerifier {
         this.secondaryGasEstimateSelected =
                 registry.counter("wallet.rpc.gas.estimate.quorum.secondary.selected");
         this.gasEstimateErrors = registry.counter("wallet.rpc.gas.estimate.quorum.errors");
+        this.broadcastFallbackAttempts =
+                registry.counter("wallet.rpc.broadcast.fallback.attempts");
+        this.broadcastFallbackAccepted =
+                registry.counter("wallet.rpc.broadcast.fallback.accepted");
+        this.broadcastFallbackErrors =
+                registry.counter("wallet.rpc.broadcast.fallback.errors");
+        this.broadcastFallbackHashMismatches =
+                registry.counter("wallet.rpc.broadcast.fallback.hash.mismatches");
     }
 
     public BigInteger resolveConservativeBlockNumber(BigInteger primaryHead) {
@@ -459,6 +471,42 @@ public class RpcQuorumVerifier {
             gasEstimateErrors.increment();
             throw new IllegalStateException(
                     "secondary RPC could not provide a gas estimate", ex);
+        }
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public String broadcastRawTransactionOnSecondary(
+            String rawTransaction, String expectedTxHash) {
+        if (!enabled) {
+            throw new IllegalStateException("secondary RPC broadcast fallback is unavailable");
+        }
+        if (!StringUtils.hasText(rawTransaction) || !isHash(expectedTxHash)) {
+            throw new IllegalArgumentException("transaction is invalid for RPC broadcast fallback");
+        }
+        broadcastFallbackAttempts.increment();
+        try {
+            var response = secondaryWeb3j.ethSendRawTransaction(rawTransaction).send();
+            if (response.hasError()) {
+                broadcastFallbackErrors.increment();
+                throw new IllegalStateException(
+                        "secondary RPC rejected transaction broadcast");
+            }
+            String secondaryTxHash = response.getTransactionHash();
+            if (!isHash(secondaryTxHash)
+                    || !expectedTxHash.equalsIgnoreCase(secondaryTxHash)) {
+                broadcastFallbackHashMismatches.increment();
+                throw new IllegalStateException(
+                        "secondary RPC returned an unexpected transaction hash");
+            }
+            broadcastFallbackAccepted.increment();
+            return expectedTxHash;
+        } catch (IOException ex) {
+            broadcastFallbackErrors.increment();
+            throw new IllegalStateException(
+                    "secondary RPC transaction broadcast failed", ex);
         }
     }
 
