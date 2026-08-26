@@ -19,6 +19,8 @@ public class Web3Properties {
     private boolean blockHashQuorumEnabled;
     @Min(0)
     private int rpcQuorumMaxHeadLag = 2;
+    @Min(1)
+    private long rpcQuorumPreflightFixedDelay = 30_000L;
     private Long chainId;
     @Min(1)
     private long connectTimeout = 5_000L;

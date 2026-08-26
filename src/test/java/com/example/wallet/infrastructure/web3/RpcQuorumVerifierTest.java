@@ -19,6 +19,7 @@ import org.web3j.protocol.core.Request;
 import org.web3j.protocol.core.methods.response.EthCall;
 import org.web3j.protocol.core.methods.response.EthBlock;
 import org.web3j.protocol.core.methods.response.EthBlockNumber;
+import org.web3j.protocol.core.methods.response.EthChainId;
 import org.web3j.protocol.core.methods.response.EthEstimateGas;
 import org.web3j.protocol.core.methods.response.EthGetBalance;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
@@ -48,6 +49,7 @@ class RpcQuorumVerifierTest {
         verifier.verifyTransactionPresence(TX_HASH, transaction(TX_HASH));
         verifier.verifyNativeBalance(ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
         verifier.verifyErc20Balance(ADDRESS, ADDRESS, BLOCK_NUMBER, BigInteger.TEN);
+        verifier.verifyChainId(BigInteger.valueOf(11155111L));
         assertThat(verifier.resolveConservativeBlockNumber(BLOCK_NUMBER))
                 .isEqualTo(BLOCK_NUMBER);
         assertThat(verifier.resolveEip1559FeeSuggestion(
@@ -58,6 +60,45 @@ class RpcQuorumVerifierTest {
                 .isEqualTo(BigInteger.valueOf(21_000));
 
         verifyNoInteractions(secondary);
+    }
+
+    @Test
+    void acceptsMatchingSecondaryChainId() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        BigInteger chainId = BigInteger.valueOf(11155111L);
+        stubChainId(secondary, chainId, false);
+
+        verifier.verifyChainId(chainId);
+
+        assertThat(counter(registry, "wallet.rpc.chain.id.quorum.matches")).isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsSecondaryChainIdMismatch() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubChainId(secondary, BigInteger.ONE, false);
+
+        assertThatThrownBy(() -> verifier.verifyChainId(BigInteger.valueOf(11155111L)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC chain id does not match configuration");
+        assertThat(counter(registry, "wallet.rpc.chain.id.quorum.mismatches")).isEqualTo(1D);
+    }
+
+    @Test
+    void rejectsSecondaryChainIdRpcError() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        stubChainId(secondary, null, true);
+
+        assertThatThrownBy(() -> verifier.verifyChainId(BigInteger.valueOf(11155111L)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC could not verify chain id");
+        assertThat(counter(registry, "wallet.rpc.chain.id.quorum.errors")).isEqualTo(1D);
     }
 
     @Test
@@ -579,6 +620,17 @@ class RpcQuorumVerifierTest {
         when(request.send()).thenReturn(response);
         when(response.hasError()).thenReturn(hasError);
         when(response.getBlockNumber()).thenReturn(blockNumber);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubChainId(Web3j secondary, BigInteger chainId, boolean hasError)
+            throws Exception {
+        Request<?, EthChainId> request = mock(Request.class);
+        EthChainId response = mock(EthChainId.class);
+        doReturn(request).when(secondary).ethChainId();
+        when(request.send()).thenReturn(response);
+        when(response.hasError()).thenReturn(hasError);
+        when(response.getChainId()).thenReturn(chainId);
     }
 
     @SuppressWarnings("unchecked")

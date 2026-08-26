@@ -383,10 +383,11 @@ V14 默认策略要求提现地址白名单，并为 Sepolia ETH 设置用户每
 
 登录与业务 API 使用 Redis 原子计数限流，默认登录每 IP 每分钟 `10` 次、其他 API 每用户或 IP 每分钟 `120` 次。Redis 异常默认 fail-closed 返回 `503`，超过限额返回 `429`。可通过 `WALLET_LOGIN_RATE_LIMIT`、`WALLET_API_RATE_LIMIT`、`WALLET_API_RATE_LIMIT_WINDOW_SECONDS` 和 `WALLET_API_RATE_LIMIT_FAIL_OPEN` 调整。
 
-Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需要 `ADMIN` 权限，生产环境还应在网络层限制监控端点。`prod` Profile 的 readiness 除数据库和 Redis 外，还会通过同一套 mTLS 客户端检查 signer-service readiness；signer 不可用或 KMS 预检失败时，钱包实例不会进入 Ready。可通过 `WALLET_SIGNER_REMOTE_HEALTH_PATH`、`WALLET_SIGNER_REMOTE_CONNECT_TIMEOUT` 和 `WALLET_SIGNER_REMOTE_READ_TIMEOUT` 配置探测路径与超时。当前指标包括：
+Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需要 `ADMIN` 权限，生产环境还应在网络层限制监控端点。`prod` Profile 的 readiness 除数据库和 Redis 外，还会通过同一套 mTLS 客户端检查 signer-service readiness，并缓存验证主备 RPC 的 chainId、链头差值与共同区块哈希；signer、KMS 或任一 RPC 不满足 quorum 时，钱包实例不会进入 Ready。RPC 预检默认每 30 秒刷新，可通过 `WEB3_RPC_QUORUM_PREFLIGHT_FIXED_DELAY` 调整；signer 探测可通过 `WALLET_SIGNER_REMOTE_HEALTH_PATH`、`WALLET_SIGNER_REMOTE_CONNECT_TIMEOUT` 和 `WALLET_SIGNER_REMOTE_READ_TIMEOUT` 配置。当前指标包括：
 
 - `wallet.scan.block.lag`、`wallet.rpc.requests`、`wallet.rpc.errors`；
 - `wallet.rpc.quorum.enabled`、`wallet.rpc.block.hash.quorum.enabled/matches/mismatches/errors`；
+- `wallet.rpc.chain.id.quorum.matches/mismatches/errors`、`wallet.rpc.preflight.up/consecutive_failures/failures`；
 - `wallet.rpc.receipt.quorum.matches/mismatches/errors`；
 - `wallet.rpc.nonce.pending.quorum.matches/mismatches/errors`、`wallet.rpc.nonce.latest.quorum.matches/mismatches/errors`；
 - `wallet.rpc.transaction.quorum.matches/mismatches/errors`；

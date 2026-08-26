@@ -59,7 +59,7 @@ management:
       show-details: never
       group:
         readiness:
-          include: readinessState,db,redis,remoteSigner
+          include: readinessState,db,redis,remoteSigner,rpcQuorum
 
 springdoc:
   api-docs:

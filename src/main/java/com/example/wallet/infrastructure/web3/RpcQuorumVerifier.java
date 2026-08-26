@@ -36,6 +36,9 @@ public class RpcQuorumVerifier {
     private final Counter blockMatches;
     private final Counter blockMismatches;
     private final Counter blockErrors;
+    private final Counter chainIdMatches;
+    private final Counter chainIdMismatches;
+    private final Counter chainIdErrors;
     private final Counter receiptMatches;
     private final Counter receiptMismatches;
     private final Counter receiptErrors;
@@ -99,6 +102,9 @@ public class RpcQuorumVerifier {
         this.blockMatches = registry.counter("wallet.rpc.block.hash.quorum.matches");
         this.blockMismatches = registry.counter("wallet.rpc.block.hash.quorum.mismatches");
         this.blockErrors = registry.counter("wallet.rpc.block.hash.quorum.errors");
+        this.chainIdMatches = registry.counter("wallet.rpc.chain.id.quorum.matches");
+        this.chainIdMismatches = registry.counter("wallet.rpc.chain.id.quorum.mismatches");
+        this.chainIdErrors = registry.counter("wallet.rpc.chain.id.quorum.errors");
         this.receiptMatches = registry.counter("wallet.rpc.receipt.quorum.matches");
         this.receiptMismatches = registry.counter("wallet.rpc.receipt.quorum.mismatches");
         this.receiptErrors = registry.counter("wallet.rpc.receipt.quorum.errors");
@@ -176,6 +182,41 @@ public class RpcQuorumVerifier {
         } catch (IOException ex) {
             headErrors.increment();
             throw new IllegalStateException("secondary RPC could not verify chain head", ex);
+        }
+    }
+
+    public void verifyChainId(BigInteger expectedChainId) {
+        if (!enabled) {
+            return;
+        }
+        if (expectedChainId == null || expectedChainId.signum() <= 0) {
+            throw new IllegalArgumentException("configured chain id is invalid for RPC quorum");
+        }
+        try {
+            var response = secondaryWeb3j.ethChainId().send();
+            if (response.hasError()) {
+                chainIdErrors.increment();
+                throw new IllegalStateException("secondary RPC could not verify chain id");
+            }
+            BigInteger secondaryChainId;
+            try {
+                secondaryChainId = response.getChainId();
+            } catch (RuntimeException ex) {
+                chainIdErrors.increment();
+                throw new IllegalStateException("secondary RPC returned an invalid chain id", ex);
+            }
+            if (secondaryChainId == null || secondaryChainId.signum() <= 0) {
+                chainIdErrors.increment();
+                throw new IllegalStateException("secondary RPC returned an invalid chain id");
+            }
+            if (!expectedChainId.equals(secondaryChainId)) {
+                chainIdMismatches.increment();
+                throw new IllegalStateException("secondary RPC chain id does not match configuration");
+            }
+            chainIdMatches.increment();
+        } catch (IOException ex) {
+            chainIdErrors.increment();
+            throw new IllegalStateException("secondary RPC could not verify chain id", ex);
         }
     }
 
