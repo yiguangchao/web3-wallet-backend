@@ -1,11 +1,11 @@
 package com.example.wallet.infrastructure.web3;
 
 import com.example.wallet.common.exception.BizException;
+import com.example.wallet.common.utils.RawTransactionUtils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.List;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import org.web3j.crypto.Hash;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.FunctionReturnDecoder;
@@ -240,10 +240,13 @@ public class Web3ServiceImpl implements Web3Service {
 
     @Override
     public String broadcastRawTransaction(String rawTransaction) {
-        if (!StringUtils.hasText(rawTransaction) || !Numeric.containsHexPrefix(rawTransaction)) {
+        byte[] encoded;
+        try {
+            encoded = RawTransactionUtils.decodeCanonicalHex(rawTransaction);
+        } catch (IllegalArgumentException ex) {
             throw new BizException("raw transaction is invalid");
         }
-        String expectedTxHash = calculateTransactionHash(rawTransaction);
+        String expectedTxHash = Numeric.toHexString(Hash.sha3(encoded));
         Exception primaryFailure;
         try {
             EthSendTransaction response = web3j.ethSendRawTransaction(rawTransaction).send();
@@ -352,18 +355,6 @@ public class Web3ServiceImpl implements Web3Service {
 
     private boolean validTxHash(String txHash) {
         return txHash != null && txHash.matches("^0x[0-9a-fA-F]{64}$");
-    }
-
-    private String calculateTransactionHash(String rawTransaction) {
-        try {
-            byte[] encoded = Numeric.hexStringToByteArray(rawTransaction);
-            if (encoded.length == 0) {
-                throw new IllegalArgumentException("empty transaction");
-            }
-            return Numeric.toHexString(Hash.sha3(encoded));
-        } catch (RuntimeException ex) {
-            throw new BizException("raw transaction is invalid");
-        }
     }
 
     private BigInteger queryNativeBalanceWei(String address) throws Exception {

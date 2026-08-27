@@ -7,6 +7,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.example.wallet.common.exception.BizException;
+import com.example.wallet.common.utils.RawTransactionUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigInteger;
 import java.util.Map;
@@ -75,5 +76,21 @@ class RemoteSignerClientTest {
         assertThatThrownBy(() -> new RemoteSignerClient(restClientBuilder, remoteProperties).sign(request))
                 .isInstanceOf(BizException.class)
                 .hasMessage("signed transaction hash does not match raw transaction");
+    }
+
+    @Test
+    void shouldRejectOversizedRawTransactionFromRemoteSigner() throws Exception {
+        String oversized = "0x" + "00".repeat(
+                RawTransactionUtils.MAX_RAW_TRANSACTION_BYTES + 1);
+        server.expect(once(), requestTo("https://signer.internal/api/v1/sign/ethereum-transaction"))
+                .andRespond(withSuccess(objectMapper.writeValueAsString(Map.of(
+                        "rawTransaction", oversized,
+                        "txHash", localSigned.txHash(),
+                        "fromAddress", localSigned.fromAddress())), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> new RemoteSignerClient(restClientBuilder, remoteProperties)
+                .sign(request))
+                .isInstanceOf(BizException.class)
+                .hasMessage("signed raw transaction is invalid");
     }
 }

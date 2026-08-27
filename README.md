@@ -314,7 +314,7 @@ $env:WALLET_WITHDRAW_ENABLED="true"
 
 `wallet_nonce` 按 `(chain_id, hot_wallet_address)` 保存下一可用 Nonce。分配时先用 `SELECT FOR UPDATE` 锁定提现订单和 Nonce 行，并取 `max(database next_nonce, chain pending nonce)`；订单通过 `(chain_id, hot_wallet_address, nonce)` 唯一约束保证一笔订单只拥有一个 Nonce，重复准备不会再次访问 RPC 或重新签名。
 
-`TransactionSigner` 是唯一签名入口。`LocalDevSigner` 只在 `dev`/`test` Profile 注册；其他 Profile 只注册 `RemoteSignerClient`。远程签名结果会在应用内重新解码并校验发送方、chainId、Nonce、Gas、接收方、金额和 data，同时以 `rawTransaction` 本地计算 `txHash`，不能信任远程服务声明的哈希。广播阶段会再次本地计算哈希：主 RPC 成功但返回不同哈希时立即 fail-closed；只有主 RPC 明确报错或网络失败时，才把完全相同的 raw transaction 发送给备用 RPC，不重新签名、不分配新 Nonce。
+`TransactionSigner` 是唯一签名入口。`LocalDevSigner` 只在 `dev`/`test` Profile 注册；其他 Profile 只注册 `RemoteSignerClient`。远程签名结果会在应用内重新解码并校验发送方、chainId、Nonce、Gas、接收方、金额和 data，同时以 `rawTransaction` 本地计算 `txHash`，不能信任远程服务声明的哈希。raw transaction 必须是带 `0x` 前缀的偶数长度十六进制，且不能超过 128 KiB；签名响应验证和广播入口都会在解码前执行该限制。广播阶段会再次本地计算哈希：主 RPC 成功但返回不同哈希时立即 fail-closed；只有主 RPC 明确报错或网络失败时，才把完全相同的 raw transaction 发送给备用 RPC，不重新签名、不分配新 Nonce。
 
 生产环境至少需要配置：
 

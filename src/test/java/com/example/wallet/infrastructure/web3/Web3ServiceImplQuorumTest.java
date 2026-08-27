@@ -1,12 +1,14 @@
 package com.example.wallet.infrastructure.web3;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigInteger;
@@ -307,6 +309,18 @@ class Web3ServiceImplQuorumTest {
                 .isInstanceOf(com.example.wallet.common.exception.BizException.class)
                 .hasMessage("primary RPC returned an unexpected transaction hash");
         verify(quorum, never()).broadcastRawTransactionOnSecondary(any(), any());
+    }
+
+    @Test
+    void rejectsMalformedRawTransactionBeforeCallingRpc() {
+        Web3j web3j = mock(Web3j.class);
+        RpcQuorumVerifier quorum = mock(RpcQuorumVerifier.class);
+        Web3ServiceImpl service = new Web3ServiceImpl(web3j, quorum);
+
+        assertThatThrownBy(() -> service.broadcastRawTransaction("0x01xz"))
+                .isInstanceOf(com.example.wallet.common.exception.BizException.class)
+                .hasMessage("raw transaction is invalid");
+        verifyNoInteractions(web3j, quorum);
     }
 
     @SuppressWarnings("unchecked")

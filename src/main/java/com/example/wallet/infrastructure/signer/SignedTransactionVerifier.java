@@ -1,6 +1,7 @@
 package com.example.wallet.infrastructure.signer;
 
 import com.example.wallet.common.exception.BizException;
+import com.example.wallet.common.utils.RawTransactionUtils;
 import java.math.BigInteger;
 import java.util.Locale;
 import org.springframework.util.StringUtils;
@@ -31,11 +32,13 @@ public final class SignedTransactionVerifier {
                                            String claimedTxHash) {
         validateRequest(request);
         String expectedFrom = normalizeAddress(expectedFromAddress, "hot wallet address is invalid");
-        if (!StringUtils.hasText(rawTransaction) || !Numeric.containsHexPrefix(rawTransaction)) {
+        byte[] encoded;
+        try {
+            encoded = RawTransactionUtils.decodeCanonicalHex(rawTransaction);
+        } catch (IllegalArgumentException ex) {
             throw new BizException("signed raw transaction is invalid");
         }
         try {
-            byte[] encoded = Numeric.hexStringToByteArray(rawTransaction);
             String localTxHash = Numeric.toHexString(Hash.sha3(encoded)).toLowerCase(Locale.ROOT);
             if (!StringUtils.hasText(claimedTxHash)
                     || !localTxHash.equals(claimedTxHash.toLowerCase(Locale.ROOT))) {
