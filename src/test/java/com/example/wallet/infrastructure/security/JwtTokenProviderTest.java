@@ -47,4 +47,39 @@ class JwtTokenProviderTest {
         assertThatThrownBy(() -> tokenProvider.parseToken(token))
                 .isInstanceOf(JwtException.class);
     }
+
+    @Test
+    void shouldRejectMissingSecretDuringConstruction() {
+        JwtProperties properties = properties(null, 60_000L);
+
+        assertThatThrownBy(() -> new JwtTokenProvider(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("JWT secret must be configured");
+    }
+
+    @Test
+    void shouldRejectWeakSecretDuringConstruction() {
+        JwtProperties properties = properties("short-secret", 60_000L);
+
+        assertThatThrownBy(() -> new JwtTokenProvider(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("JWT secret must contain at least 32 bytes");
+    }
+
+    @Test
+    void shouldRejectNonPositiveExpirationDuringConstruction() {
+        JwtProperties properties = properties(
+                "unit-test-secret-key-that-is-at-least-32-bytes", 0L);
+
+        assertThatThrownBy(() -> new JwtTokenProvider(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("JWT expiration must be positive");
+    }
+
+    private JwtProperties properties(String secret, Long expiration) {
+        JwtProperties properties = new JwtProperties();
+        properties.setSecret(secret);
+        properties.setExpiration(expiration);
+        return properties;
+    }
 }

@@ -131,6 +131,8 @@ docker compose up -d redis
 
 Swagger 提供 JWT Bearer 授权入口。`prod` Profile 默认关闭 Swagger，可通过受控环境变量临时开启，但不应直接暴露到公网。
 
+JWT 密钥在应用启动时完成校验并只构造一次：`JWT_SECRET` 必须存在且 UTF-8 编码不少于 32 字节，`JWT_EXPIRATION` 必须为正数。生产配置不提供密钥默认值，因此错误或弱配置会阻止实例启动，而不是等到首次登录时才失败。
+
 ## 当前功能
 
 - 用户注册、登录
