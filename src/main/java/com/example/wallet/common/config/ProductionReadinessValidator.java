@@ -14,6 +14,9 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("prod")
 public class ProductionReadinessValidator implements ApplicationRunner {
+    private static final String DOCUMENTED_DEFAULT_JWT_SECRET =
+            "please-change-this-secret-key-to-at-least-32-bytes";
+
     private final JwtProperties jwt;
     private final SignerProperties signer;
     private final CustodyWalletProperties custody;
@@ -31,6 +34,8 @@ public class ProductionReadinessValidator implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         require(jwt.getSecret() != null && jwt.getSecret().length() >= 48,
                 "production JWT secret must contain at least 48 characters");
+        require(!DOCUMENTED_DEFAULT_JWT_SECRET.equals(jwt.getSecret().trim()),
+                "production JWT secret must not use the documented default");
         require(!StringUtils.hasText(signer.getLocalPrivateKey()),
                 "local signer private key is forbidden in production");
         requireSecureUrl(signer.getRemoteUrl(), "remote signer");
