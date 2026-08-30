@@ -2,6 +2,7 @@ package com.example.wallet.infrastructure.security;
 
 import com.example.wallet.module.user.entity.UserRole;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
@@ -56,7 +57,12 @@ public class JwtTokenProvider {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-        return new LoginUser(claims.get("userId", Long.class), claims.getSubject(),
+        Long userId = claims.get("userId", Long.class);
+        String username = claims.getSubject();
+        if (userId == null || userId <= 0 || !StringUtils.hasText(username)) {
+            throw new JwtException("JWT token is missing required identity claims");
+        }
+        return new LoginUser(userId, username,
                 UserRole.from(claims.get("role", String.class)).name());
     }
 

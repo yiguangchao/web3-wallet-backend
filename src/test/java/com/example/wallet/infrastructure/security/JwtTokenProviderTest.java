@@ -4,17 +4,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class JwtTokenProviderTest {
+
+    private static final String TEST_SECRET = "unit-test-secret-key-that-is-at-least-32-bytes";
 
     private JwtTokenProvider tokenProvider;
 
     @BeforeEach
     void setUp() {
         JwtProperties properties = new JwtProperties();
-        properties.setSecret("unit-test-secret-key-that-is-at-least-32-bytes");
+        properties.setSecret(TEST_SECRET);
         properties.setExpiration(60_000L);
         tokenProvider = new JwtTokenProvider(properties);
     }
@@ -46,6 +52,34 @@ class JwtTokenProviderTest {
 
         assertThatThrownBy(() -> tokenProvider.parseToken(token))
                 .isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void shouldRejectSignedTokenWithoutUserId() {
+        String token = Jwts.builder()
+                .subject("alice")
+                .claim("role", "USER")
+                .expiration(new Date(System.currentTimeMillis() + 60_000L))
+                .signWith(Keys.hmacShaKeyFor(TEST_SECRET.getBytes(StandardCharsets.UTF_8)))
+                .compact();
+
+        assertThatThrownBy(() -> tokenProvider.parseToken(token))
+                .isInstanceOf(JwtException.class)
+                .hasMessage("JWT token is missing required identity claims");
+    }
+
+    @Test
+    void shouldRejectSignedTokenWithoutUsername() {
+        String token = Jwts.builder()
+                .claim("userId", 1001L)
+                .claim("role", "USER")
+                .expiration(new Date(System.currentTimeMillis() + 60_000L))
+                .signWith(Keys.hmacShaKeyFor(TEST_SECRET.getBytes(StandardCharsets.UTF_8)))
+                .compact();
+
+        assertThatThrownBy(() -> tokenProvider.parseToken(token))
+                .isInstanceOf(JwtException.class)
+                .hasMessage("JWT token is missing required identity claims");
     }
 
     @Test
