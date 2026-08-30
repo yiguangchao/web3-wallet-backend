@@ -1,5 +1,7 @@
 # web3-wallet-backend
 
+**简体中文** | [English](README.en.md)
+
 三个相互配合的可运行部分：
 
 - Java 托管钱包后端与独立 [signer-service](signer-service/README.md)；
@@ -131,7 +133,7 @@ docker compose up -d redis
 
 Swagger 提供 JWT Bearer 授权入口。`prod` Profile 默认关闭 Swagger，可通过受控环境变量临时开启，但不应直接暴露到公网。
 
-JWT 密钥在应用启动时完成校验并只构造一次：`JWT_SECRET` 必须存在且 UTF-8 编码不少于 32 字节，`JWT_EXPIRATION` 必须为正数。生产配置不提供密钥默认值，因此错误或弱配置会阻止实例启动，而不是等到首次登录时才失败。
+JWT 密钥在应用启动时完成校验并只构造一次：`JWT_SECRET` 必须存在且 UTF-8 编码不少于 32 字节，`JWT_EXPIRATION` 必须为正数。生产配置不提供密钥默认值，并明确拒绝仓库中公开的开发占位密钥；解析令牌时还要求 `userId` 为正数且用户名不能为空。因此错误配置、弱密钥或身份声明不完整的令牌都会被提前拒绝。
 
 ## 当前功能
 
@@ -383,7 +385,7 @@ V14 默认策略要求提现地址白名单，并为 Sepolia ETH 设置用户每
 - `POST /api/admin/reconciliation/run`：立即执行对账。
 - `GET /api/admin/reconciliation/differences`：查询对账差异。
 
-登录与业务 API 使用 Redis 原子计数限流，默认登录每 IP 每分钟 `10` 次、其他 API 每用户或 IP 每分钟 `120` 次。Redis 异常默认 fail-closed 返回 `503`，超过限额返回 `429`。可通过 `WALLET_LOGIN_RATE_LIMIT`、`WALLET_API_RATE_LIMIT`、`WALLET_API_RATE_LIMIT_WINDOW_SECONDS` 和 `WALLET_API_RATE_LIMIT_FAIL_OPEN` 调整。
+登录与业务 API 使用 Redis 原子计数限流，默认登录每 IP 每分钟 `10` 次、其他 API 每用户或 IP 每分钟 `120` 次。Redis 异常默认 fail-closed 返回 `503`，超过限额返回 `429`，并通过标准 `Retry-After` 响应头告知客户端等待秒数。可通过 `WALLET_LOGIN_RATE_LIMIT`、`WALLET_API_RATE_LIMIT`、`WALLET_API_RATE_LIMIT_WINDOW_SECONDS` 和 `WALLET_API_RATE_LIMIT_FAIL_OPEN` 调整。
 
 Actuator 暴露 `health`、`metrics` 和 `prometheus`。除健康检查外均需要 `ADMIN` 权限，生产环境还应在网络层限制监控端点。`prod` Profile 的 readiness 除数据库和 Redis 外，还会通过同一套 mTLS 客户端检查 signer-service readiness，并缓存验证主备 RPC 的 chainId、链头差值与共同区块哈希；signer、KMS 或任一 RPC 不满足 quorum 时，钱包实例不会进入 Ready。RPC 预检默认每 30 秒刷新，可通过 `WEB3_RPC_QUORUM_PREFLIGHT_FIXED_DELAY` 调整；signer 探测可通过 `WALLET_SIGNER_REMOTE_HEALTH_PATH`、`WALLET_SIGNER_REMOTE_CONNECT_TIMEOUT` 和 `WALLET_SIGNER_REMOTE_READ_TIMEOUT` 配置。当前指标包括：
 

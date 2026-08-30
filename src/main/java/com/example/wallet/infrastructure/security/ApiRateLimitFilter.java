@@ -7,6 +7,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -45,6 +46,8 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         try {
             if (!rateLimiter.allow(key, limit, properties.getWindowSeconds())) {
                 rejectedCounter.increment();
+                response.setHeader(HttpHeaders.RETRY_AFTER,
+                        Integer.toString(properties.getWindowSeconds()));
                 writeError(response, 429,
                         "request rate limit exceeded");
                 return;

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -26,6 +27,7 @@ class ApiRateLimitFilterTest {
         filter.doFilter(request, response, chain);
 
         assertThat(response.getStatus()).isEqualTo(429);
+        assertThat(response.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
         assertThat(response.getContentAsString()).contains("request rate limit exceeded");
         verifyNoInteractions(chain);
     }
