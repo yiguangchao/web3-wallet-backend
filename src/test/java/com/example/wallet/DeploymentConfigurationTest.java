@@ -41,6 +41,8 @@ class DeploymentConfigurationTest {
         assertThat(production).contains(
                 "rpc-quorum-max-head-lag: ${WEB3_RPC_QUORUM_MAX_HEAD_LAG:2}");
         assertThat(production).contains("secret: ${JWT_SECRET}");
+        assertThat(production).contains("deposit-enabled: ${WALLET_DEPOSIT_ENABLED:false}");
+        assertThat(production).contains("withdraw-enabled: ${WALLET_WITHDRAW_ENABLED:false}");
         assertThat(production).contains("enabled: ${SWAGGER_ENABLED:false}");
         assertThat(production).doesNotContain("local-private-key");
     }

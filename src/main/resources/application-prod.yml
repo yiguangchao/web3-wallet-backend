@@ -29,6 +29,9 @@ web3:
   chain-id: ${WEB3_CHAIN_ID}
 
 wallet:
+  operations:
+    deposit-enabled: ${WALLET_DEPOSIT_ENABLED:false}
+    withdraw-enabled: ${WALLET_WITHDRAW_ENABLED:false}
   signer:
     hot-wallet-address: ${WALLET_SIGNER_HOT_WALLET_ADDRESS}
     key-id: ${WALLET_SIGNER_KEY_ID}
