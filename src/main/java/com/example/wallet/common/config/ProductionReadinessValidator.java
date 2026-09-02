@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("prod")
 public class ProductionReadinessValidator implements ApplicationRunner {
+    private static final long MAX_PRODUCTION_JWT_EXPIRATION_MILLIS = 86_400_000L;
     private static final String DOCUMENTED_DEFAULT_JWT_SECRET =
             "please-change-this-secret-key-to-at-least-32-bytes";
 
@@ -36,6 +37,9 @@ public class ProductionReadinessValidator implements ApplicationRunner {
                 "production JWT secret must contain at least 48 characters");
         require(!DOCUMENTED_DEFAULT_JWT_SECRET.equals(jwt.getSecret().trim()),
                 "production JWT secret must not use the documented default");
+        require(jwt.getExpiration() != null && jwt.getExpiration() > 0
+                        && jwt.getExpiration() <= MAX_PRODUCTION_JWT_EXPIRATION_MILLIS,
+                "production JWT expiration must be between 1 millisecond and 24 hours");
         require(!StringUtils.hasText(signer.getLocalPrivateKey()),
                 "local signer private key is forbidden in production");
         requireSecureUrl(signer.getRemoteUrl(), "remote signer");

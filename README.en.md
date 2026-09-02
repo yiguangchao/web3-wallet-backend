@@ -151,7 +151,7 @@ After startup:
 
 Swagger provides JWT Bearer authorization. The `prod` profile disables Swagger by default. It may be temporarily enabled through a controlled environment variable, but should never be exposed directly to the public internet.
 
-JWT configuration is validated once at startup. `JWT_SECRET` must exist and contain at least 32 UTF-8 bytes, and `JWT_EXPIRATION` must be positive. Production has no default secret and explicitly rejects the documented development placeholder. Parsed tokens must also contain a positive `userId` and a non-blank username. Invalid configuration, weak/default secrets, and incomplete identity claims are rejected before an authenticated identity can be established.
+JWT configuration is validated once at startup. `JWT_SECRET` must exist and contain at least 32 UTF-8 bytes, and `JWT_EXPIRATION` must be positive and no longer than 24 hours in production. Production has no default secret and explicitly rejects the documented development placeholder. Parsed tokens must also contain a positive `userId` and a non-blank username. Invalid configuration, weak/default secrets, excessively long-lived tokens, and incomplete identity claims are rejected before an authenticated identity can be established.
 
 ## Current capabilities
 
@@ -544,4 +544,3 @@ This project is suitable for local development, CI, testnet deployment, architec
 - run signer outage, RPC disagreement, chain reorganization, stuck transaction, database recovery, and regional-failure exercises;
 - complete independent application, smart-contract, cloud, and operational security audits;
 - obtain legal, licensing, AML/KYC, sanctions, privacy, and custody approvals for the target jurisdiction.
-

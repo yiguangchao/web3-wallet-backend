@@ -29,9 +29,25 @@ class ProductionReadinessValidatorTest {
         assertThatCode(() -> validator.run(null)).doesNotThrowAnyException();
     }
 
+    @Test
+    void shouldRejectJwtExpirationLongerThanTwentyFourHours() {
+        ProductionReadinessValidator validator = validator(
+                "production-only-random-jwt-secret-with-more-than-48-characters",
+                86_400_001L);
+
+        assertThatThrownBy(() -> validator.run(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("production JWT expiration must be between 1 millisecond and 24 hours");
+    }
+
     private ProductionReadinessValidator validator(String jwtSecret) {
+        return validator(jwtSecret, 86_400_000L);
+    }
+
+    private ProductionReadinessValidator validator(String jwtSecret, long expiration) {
         JwtProperties jwt = new JwtProperties();
         jwt.setSecret(jwtSecret);
+        jwt.setExpiration(expiration);
 
         SignerProperties signer = new SignerProperties();
         signer.setRemoteUrl("https://signer.internal.example");
