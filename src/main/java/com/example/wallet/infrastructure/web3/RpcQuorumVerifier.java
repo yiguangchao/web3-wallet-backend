@@ -193,7 +193,7 @@ public class RpcQuorumVerifier {
             throw new IllegalArgumentException("configured chain id is invalid for RPC quorum");
         }
         try {
-            var response = secondaryWeb3j.ethChainId().send();
+            var response = querySecondaryChainId();
             if (response.hasError()) {
                 chainIdErrors.increment();
                 throw new IllegalStateException("secondary RPC could not verify chain id");
@@ -215,6 +215,16 @@ public class RpcQuorumVerifier {
             }
             chainIdMatches.increment();
         } catch (IOException ex) {
+            chainIdErrors.increment();
+            throw new IllegalStateException("secondary RPC could not verify chain id", ex);
+        }
+    }
+
+    private org.web3j.protocol.core.methods.response.EthChainId querySecondaryChainId()
+            throws IOException {
+        try {
+            return secondaryWeb3j.ethChainId().send();
+        } catch (RuntimeException ex) {
             chainIdErrors.increment();
             throw new IllegalStateException("secondary RPC could not verify chain id", ex);
         }

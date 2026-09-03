@@ -102,6 +102,21 @@ class RpcQuorumVerifierTest {
     }
 
     @Test
+    void countsSecondaryChainIdRuntimeFailureAsQuorumError() throws Exception {
+        Web3j secondary = mock(Web3j.class);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RpcQuorumVerifier verifier = new RpcQuorumVerifier(true, secondary, registry);
+        Request<?, EthChainId> request = mock(Request.class);
+        doReturn(request).when(secondary).ethChainId();
+        when(request.send()).thenThrow(new IllegalStateException("transport failed"));
+
+        assertThatThrownBy(() -> verifier.verifyChainId(BigInteger.valueOf(11155111L)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("secondary RPC could not verify chain id");
+        assertThat(counter(registry, "wallet.rpc.chain.id.quorum.errors")).isEqualTo(1D);
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void acceptsMatchingBlockHashes() throws Exception {
         Web3j secondary = mock(Web3j.class);
