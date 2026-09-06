@@ -13,6 +13,8 @@ Three runnable components that work together:
 ![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![MySQL 8](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
 
+For security reporting and supported-version guidance, see [SECURITY.md](SECURITY.md).
+
 A Web3 Java backend and blockchain custodial-wallet service built with Spring Boot and Web3j. It supports platform-controlled HD deposit-address allocation, ETH/ERC-20 deposit scanning and sweeping, an internal asset ledger, withdrawal review, isolated signing, transaction broadcasting, reconciliation, and operational monitoring.
 
 ## Technology stack
