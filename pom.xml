@@ -21,7 +21,7 @@
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <web3j.version>4.12.3</web3j.version>
-        <jjwt.version>0.12.6</jjwt.version>
+        <jjwt.version>0.13.0</jjwt.version>
         <!-- Security and compatibility patch levels required by the image scan. -->
         <micrometer.version>1.15.12</micrometer.version>
         <spring-data-bom.version>2025.0.12</spring-data-bom.version>
