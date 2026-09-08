@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  # Keep the backend and isolated signer service on supported dependency
+  # versions without changing application code automatically.
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "org.springframework:*"
+      security-and-observability:
+        patterns:
+          - "io.micrometer:*"
+          - "org.springframework.security:*"
+
+  - package-ecosystem: maven
+    directory: "/signer-service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: npm
+    directory: "/staking-protocol/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
