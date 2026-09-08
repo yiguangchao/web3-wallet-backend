@@ -14,7 +14,7 @@
     <version>1.0.0</version>
     <properties>
         <java.version>17</java.version>
-        <web3j.version>4.12.3</web3j.version>
+        <web3j.version>6.0.0</web3j.version>
         <google-cloud-kms.version>2.96.0</google-cloud-kms.version>
     </properties>
     <dependencies>
