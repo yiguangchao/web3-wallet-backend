@@ -15,7 +15,7 @@
     <properties>
         <java.version>17</java.version>
         <web3j.version>4.12.3</web3j.version>
-        <google-cloud-kms.version>2.96.0</google-cloud-kms.version>
+        <google-cloud-kms.version>2.100.0</google-cloud-kms.version>
     </properties>
     <dependencies>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
