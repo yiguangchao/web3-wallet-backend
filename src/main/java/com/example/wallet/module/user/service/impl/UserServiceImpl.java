@@ -21,11 +21,13 @@ public class UserServiceImpl implements UserService {
     private final SysUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final String dummyPasswordHash;
 
     public UserServiceImpl(SysUserMapper userMapper, PasswordEncoder passwordEncoder, JwtTokenProvider jwtTokenProvider) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
+        this.dummyPasswordHash = passwordEncoder.encode("not-a-user-credential");
     }
 
     @Override
@@ -60,7 +62,9 @@ public class UserServiceImpl implements UserService {
     public LoginResponse login(LoginRequest request) {
         SysUser user = userMapper.selectOne(new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getUsername, request.getUsername()));
-        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        String passwordHash = user == null ? dummyPasswordHash : user.getPassword();
+        boolean passwordMatches = passwordEncoder.matches(request.getPassword(), passwordHash);
+        if (user == null || !passwordMatches) {
             throw new BizException("用户名或密码错误");
         }
         if (!Integer.valueOf(1).equals(user.getStatus())) {
