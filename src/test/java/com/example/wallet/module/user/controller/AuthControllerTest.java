@@ -2,6 +2,7 @@ package com.example.wallet.module.user.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -93,5 +94,22 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.token").value("jwt-token"))
                 .andExpect(jsonPath("$.data.userId").value(1001L))
                 .andExpect(jsonPath("$.data.username").value("alice"));
+    }
+
+    @Test
+    void shouldRejectOversizedLoginFieldsBeforeCallingService() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "username": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                  "password": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        verifyNoInteractions(userService);
     }
 }
