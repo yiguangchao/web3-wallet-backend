@@ -10,7 +10,7 @@ Three runnable components that work together:
 
 [![CI](https://github.com/yiguangchao/web3-wallet-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/yiguangchao/web3-wallet-backend/actions/workflows/ci.yml)
 ![Java 17](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
-![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
+![Spring Boot 3](https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white)
 ![MySQL 8](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
 
 For security reporting and supported-version guidance, see [SECURITY.md](SECURITY.md).
