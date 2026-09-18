@@ -2,6 +2,7 @@
 * text=auto
 
 .gitattributes text eol=lf
+.editorconfig text eol=lf
 .gitignore text eol=lf
 
 *.java text eol=lf
