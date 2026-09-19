@@ -55,7 +55,7 @@ CI 运行器提供 Docker。MySQL/Redis 服务容器先通过健康检查，Test
 
 ## Flyway 迁移验证
 
-`FlywayMySqlMigrationTest` 从空 MySQL 8 数据库顺序执行 `V1` 到当前最新 `V14`，并覆盖已知历史版本升级、约束冲突和账本不变量。迁移重复版本、SQL 冲突或 checksum 不匹配都会使 `mvn clean test` 失败。
+`FlywayMySqlMigrationTest` 从空 MySQL 8 数据库顺序执行 `V1` 到当前最新 `V16`，并覆盖已知历史版本升级、约束冲突和账本不变量。迁移重复版本、SQL 冲突或 checksum 不匹配都会使 `mvn clean test` 失败。
 
 ## 测试报告
 
