@@ -19,11 +19,14 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ApiRateLimitFilter apiRateLimitFilter;
+    private final ApiAuthenticationEntryPoint apiAuthenticationEntryPoint;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          ApiRateLimitFilter apiRateLimitFilter) {
+                          ApiRateLimitFilter apiRateLimitFilter,
+                          ApiAuthenticationEntryPoint apiAuthenticationEntryPoint) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.apiRateLimitFilter = apiRateLimitFilter;
+        this.apiAuthenticationEntryPoint = apiAuthenticationEntryPoint;
     }
 
     @Bean
@@ -36,6 +39,8 @@ public class SecurityConfig {
                                 "/v3/api-docs/**", "/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(apiAuthenticationEntryPoint))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(apiRateLimitFilter, JwtAuthenticationFilter.class)
                 .build();
