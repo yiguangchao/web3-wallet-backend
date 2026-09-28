@@ -74,6 +74,7 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
     private void writeError(HttpServletResponse response, int status, String message) throws IOException {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         response.getWriter().write("{\"code\":" + status + ",\"message\":\"" + message
                 + "\",\"data\":null}");
     }

@@ -28,6 +28,7 @@ class ApiRateLimitFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(429);
         assertThat(response.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
+        assertThat(response.getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-store");
         assertThat(response.getContentAsString()).contains("request rate limit exceeded");
         verifyNoInteractions(chain);
     }
