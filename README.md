@@ -17,6 +17,56 @@
 
 Web3 Java 后端/区块链托管钱包服务。当前版本基于 Spring Boot + Web3j，提供平台 HD 充值地址分配、ETH/ERC-20 充值扫描与归集、内部资产账本、提现审核与广播等能力。
 
+## 项目导航
+
+| 路径 | 内容 |
+| --- | --- |
+| `src/main/java/com/example/wallet/` | 钱包后端业务模块与基础设施 |
+| `src/main/resources/` | 环境配置与 Flyway 数据库迁移 |
+| `src/test/` | 后端单元测试和集成测试 |
+| [signer-service/](signer-service/README.md) | 独立签名服务及运行说明 |
+| [staking-protocol/](staking-protocol/README.md) | Solidity 质押合约、测试和部署说明 |
+| `staking-protocol/frontend/` | React + viem dApp |
+| [docs/ci-testing.md](docs/ci-testing.md) | 测试分层、Docker 要求与 CI 行为 |
+| `docs/sql/` | 数据库版本升级前的只读检查脚本 |
+| `deploy/` | 部署配置示例 |
+
+## 快速体验：本地容器环境
+
+在仓库根目录执行以下命令。需要安装 Git、Docker 和 Docker Compose，并启动 Docker 引擎：
+
+```bash
+git clone https://github.com/yiguangchao/web3-wallet-backend.git
+cd web3-wallet-backend
+docker compose up --build -d
+docker compose ps
+```
+
+此方式会构建 Java 后端，并启动 MySQL、Redis 和本地 Anvil 测试链；不需要另外配置 Sepolia RPC。独立签名服务、Solidity 协议和 dApp 不在此 Compose 的启动范围内，请参考各模块说明。
+
+应用就绪后打开 [Swagger UI](http://localhost:8080/swagger-ui.html)，或检查 readiness：
+
+```bash
+curl http://localhost:8080/actuator/health/readiness
+```
+
+Windows PowerShell 也可执行：
+
+```powershell
+Invoke-RestMethod http://localhost:8080/actuator/health/readiness
+```
+
+返回 `status: UP` 表示 readiness 中的应用状态、MySQL 和 Redis 检查通过；这不代表链上资金流程已经完成验证。充值扫描、托管地址分配和对账默认关闭，需按后文配置启用。
+
+查看日志与停止环境：
+
+```bash
+docker compose logs --tail=100 -f app
+docker compose down
+```
+
+`docker compose down` 保留 MySQL 和 Redis 数据卷，重新启动后可以继续使用已有数据。
+
 ## 技术栈
 
 - Java 17

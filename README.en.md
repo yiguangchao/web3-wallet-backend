@@ -17,6 +17,56 @@ For security reporting and supported-version guidance, see [SECURITY.md](SECURIT
 
 A Web3 Java backend and blockchain custodial-wallet service built with Spring Boot and Web3j. It supports platform-controlled HD deposit-address allocation, ETH/ERC-20 deposit scanning and sweeping, an internal asset ledger, withdrawal review, isolated signing, transaction broadcasting, reconciliation, and operational monitoring.
 
+## Repository guide
+
+| Path | Contents |
+| --- | --- |
+| `src/main/java/com/example/wallet/` | Wallet business modules and infrastructure |
+| `src/main/resources/` | Environment configuration and Flyway migrations |
+| `src/test/` | Backend unit and integration tests |
+| [signer-service/](signer-service/README.md) | Isolated signer and its running instructions |
+| [staking-protocol/](staking-protocol/README.md) | Solidity staking contracts, tests, and deployment instructions |
+| `staking-protocol/frontend/` | React + viem dApp |
+| [docs/ci-testing.md](docs/ci-testing.md) | Test layers, Docker requirements, and CI behavior |
+| `docs/sql/` | Read-only database upgrade preflight scripts |
+| `deploy/` | Deployment configuration examples |
+
+## Quick start: local containers
+
+Run these commands from the repository root. Install Git, Docker, and Docker Compose first, and start the Docker engine:
+
+```bash
+git clone https://github.com/yiguangchao/web3-wallet-backend.git
+cd web3-wallet-backend
+docker compose up --build -d
+docker compose ps
+```
+
+This builds the Java backend and starts MySQL, Redis, and a local Anvil test chain without requiring a Sepolia RPC endpoint. The isolated signer, Solidity protocol, and dApp are outside this Compose stack; follow their module instructions separately.
+
+Once the application is ready, open [Swagger UI](http://localhost:8080/swagger-ui.html) or check readiness:
+
+```bash
+curl http://localhost:8080/actuator/health/readiness
+```
+
+On Windows PowerShell, you can also run:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/actuator/health/readiness
+```
+
+A `status: UP` response confirms the application readiness state, MySQL, and Redis checks. It does not verify the on-chain funds lifecycle. Deposit scanning, custody address allocation, and reconciliation are disabled by default; configure them using the sections below.
+
+Inspect logs and stop the environment:
+
+```bash
+docker compose logs --tail=100 -f app
+docker compose down
+```
+
+`docker compose down` preserves the MySQL and Redis volumes so existing data is available after restarting.
+
 ## Technology stack
 
 - Java 17
