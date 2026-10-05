@@ -1,5 +1,7 @@
 # web3-wallet-backend
 
+Authenticated clients can call `GET /api/asset/supported` with a Bearer token to discover active assets, ordered by chain ID and asset code. The catalog includes chain/token metadata, decimals, confirmation blocks, deposit/withdrawal limits and platform withdrawal fees in asset units. Operation flags combine asset switches with global `wallet.operations` switches. The catalog remains available during pauses and uses `Cache-Control: no-store`; actual operations still undergo server-side validation.
+
 [简体中文](README.md) | **English**
 
 Three runnable components that work together:

@@ -3,6 +3,7 @@ package com.example.wallet.module.asset.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.asset.config.AssetOperationProperties;
+import com.example.wallet.module.asset.dto.SupportedAssetResponse;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.entity.SupportedAssetType;
 import com.example.wallet.module.asset.mapper.SupportedAssetMapper;
@@ -24,6 +25,22 @@ public class SupportedAssetServiceImpl implements SupportedAssetService {
                                      AssetOperationProperties operationProperties) {
         this.assetMapper = assetMapper;
         this.operationProperties = operationProperties;
+    }
+
+    @Override
+    public List<SupportedAssetResponse> listSupportedAssets() {
+        return assetMapper.selectList(new LambdaQueryWrapper<SupportedAsset>()
+                        .eq(SupportedAsset::getStatus, ACTIVE)
+                        .orderByAsc(SupportedAsset::getChainId, SupportedAsset::getAssetCode))
+                .stream()
+                .map(asset -> new SupportedAssetResponse(
+                        asset.getId(), asset.getChain(), asset.getChainId(), asset.getAssetCode(),
+                        asset.getSymbol(), asset.getAssetType(), asset.getTokenAddress(), asset.getDecimals(),
+                        operationProperties.isDepositEnabled() && Boolean.TRUE.equals(asset.getDepositEnabled()),
+                        operationProperties.isWithdrawEnabled() && Boolean.TRUE.equals(asset.getWithdrawEnabled()),
+                        asset.getConfirmationBlocks(), asset.getMinDeposit(), asset.getMinWithdraw(),
+                        asset.getMaxSingleWithdraw(), asset.getPlatformWithdrawFee()))
+                .toList();
     }
 
     @Override

@@ -1,9 +1,12 @@
 package com.example.wallet.module.asset.service;
 
 import com.example.wallet.module.asset.entity.SupportedAsset;
+import com.example.wallet.module.asset.dto.SupportedAssetResponse;
 import java.util.List;
 
 public interface SupportedAssetService {
+
+    List<SupportedAssetResponse> listSupportedAssets();
 
     SupportedAsset getRequiredByAssetCode(String assetCode);
 

@@ -178,6 +178,12 @@ docker compose up -d redis
 
 ## API 文档
 
+### 支持资产目录
+
+登录后调用 `GET /api/asset/supported`（携带 `Authorization: Bearer <token>`），查询启用的资产，按链 ID、资产代码排序。返回资产 ID、链、代码、符号、类型、合约地址、精度、确认区块数、充值/提现限额和平台提现手续费。金额使用资产单位。
+
+`depositEnabled`、`withdrawEnabled` 同时考虑资产开关和全局 `wallet.operations` 开关；暂停期间仍可查询目录。响应使用 `Cache-Control: no-store`。该目录用于界面展示，实际操作仍由服务端实时校验。
+
 启动后访问：
 
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
