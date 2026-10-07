@@ -1,5 +1,7 @@
 # web3-wallet-backend
 
+Authenticated clients can query `GET /api/asset/flows/page` for their own ledger history. Optional `assetId` filters by asset; `limit` defaults to 20 and accepts 1–100. Results are ordered by descending flow ID, not block time. The response contains `items`, `hasMore`, and `nextCursor`. When `hasMore` is true, pass the string cursor unchanged as `beforeId` and retain the same asset filter. The final page has a null cursor. String cursors preserve large IDs in JavaScript; responses use `Cache-Control: no-store`. Invalid parameters return business code 400. The existing `/api/asset/flows` remains compatible.
+
 Authenticated clients can call `GET /api/asset/supported` with a Bearer token to discover active assets, ordered by chain ID and asset code. The catalog includes chain/token metadata, decimals, confirmation blocks, deposit/withdrawal limits and platform withdrawal fees in asset units. Operation flags combine asset switches with global `wallet.operations` switches. The catalog remains available during pauses and uses `Cache-Control: no-store`; actual operations still undergo server-side validation.
 
 [简体中文](README.md) | **English**

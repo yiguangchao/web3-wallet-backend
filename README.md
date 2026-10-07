@@ -178,6 +178,17 @@ docker compose up -d redis
 
 ## API 文档
 
+### 资产流水分页查询
+
+登录后调用 `GET /api/asset/flows/page`，默认每页 20 条，`limit` 可设置为 1–100。可选 `assetId` 按资产筛选，`beforeId` 用于继续查询更小 ID 的记录；只能查询当前登录用户的流水，按流水 ID 降序返回。
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  'http://localhost:8080/api/asset/flows/page?assetId=7001&limit=20'
+```
+
+响应 `data` 包含 `items`、`hasMore` 和 `nextCursor`。`hasMore=true` 时，把字符串 `nextCursor` 原样传入下一次请求的 `beforeId`，并保留相同的资产筛选条件。末页 `nextCursor=null`。游标采用字符串，避免 JavaScript 大整数精度丢失；排序以 ID 为准，并非区块时间。响应禁止缓存，非法参数返回业务码 `400`。原有 `/api/asset/flows` 保持兼容，新增客户端建议使用分页接口。
+
 ### 支持资产目录
 
 登录后调用 `GET /api/asset/supported`（携带 `Authorization: Bearer <token>`），查询启用的资产，按链 ID、资产代码排序。返回资产 ID、链、代码、符号、类型、合约地址、精度、确认区块数、充值/提现限额和平台提现手续费。金额使用资产单位。

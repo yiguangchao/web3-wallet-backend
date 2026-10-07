@@ -1,5 +1,6 @@
 package com.example.wallet.module.asset.service;
 
+import com.example.wallet.module.asset.dto.AssetFlowPage;
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
 import com.example.wallet.module.asset.entity.SupportedAsset;
@@ -11,6 +12,8 @@ public interface AssetService {
     List<AssetAccount> listAccounts(Long userId);
 
     List<AssetFlow> listFlows(Long userId);
+
+    AssetFlowPage listFlowPage(Long userId, Long assetId, Long beforeId, int limit);
 
     void creditDeposit(Long userId, SupportedAsset asset, BigDecimal amount, Long businessId, String txHash);
 

@@ -3,6 +3,7 @@ package com.example.wallet.module.asset.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.example.wallet.common.exception.BizException;
+import com.example.wallet.module.asset.dto.AssetFlowPage;
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
 import com.example.wallet.module.asset.entity.AssetFreezeDetail;
@@ -60,6 +61,24 @@ public class AssetServiceImpl implements AssetService {
         return assetFlowMapper.selectList(new LambdaQueryWrapper<AssetFlow>()
                 .eq(AssetFlow::getUserId, userId)
                 .orderByDesc(AssetFlow::getCreatedAt));
+    }
+
+    @Override
+    public AssetFlowPage listFlowPage(Long userId, Long assetId, Long beforeId, int limit) {
+        if (userId == null || userId <= 0 || limit < 1 || limit > 100
+                || (assetId != null && assetId <= 0) || (beforeId != null && beforeId <= 0)) {
+            throw new BizException(400, "invalid asset flow pagination parameters");
+        }
+        List<AssetFlow> rows = assetFlowMapper.selectList(new LambdaQueryWrapper<AssetFlow>()
+                .eq(AssetFlow::getUserId, userId)
+                .eq(assetId != null, AssetFlow::getAssetId, assetId)
+                .lt(beforeId != null, AssetFlow::getId, beforeId)
+                .orderByDesc(AssetFlow::getId)
+                .last("LIMIT " + (limit + 1)));
+        boolean hasMore = rows.size() > limit;
+        List<AssetFlow> items = List.copyOf(rows.subList(0, Math.min(limit, rows.size())));
+        String nextCursor = hasMore ? items.get(items.size() - 1).getId().toString() : null;
+        return new AssetFlowPage(items, nextCursor, hasMore);
     }
 
     @Override

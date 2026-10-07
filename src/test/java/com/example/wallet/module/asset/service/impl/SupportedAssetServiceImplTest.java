@@ -9,8 +9,8 @@ import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
-import org.apache.ibatis.session.Configuration;
 import java.util.List;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.asset.config.AssetOperationProperties;
@@ -33,7 +33,7 @@ class SupportedAssetServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), SupportedAsset.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SupportedAsset.class);
         properties = new AssetOperationProperties();
         service = new SupportedAssetServiceImpl(assetMapper, properties);
     }
