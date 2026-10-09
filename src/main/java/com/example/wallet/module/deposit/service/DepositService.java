@@ -7,5 +7,7 @@ public interface DepositService {
 
     List<DepositOrder> listOrders(Long userId);
 
+    DepositOrder getOrder(Long userId, Long orderId);
+
     void listenDeposits();
 }

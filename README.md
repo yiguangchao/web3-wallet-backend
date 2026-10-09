@@ -178,6 +178,17 @@ docker compose up -d redis
 
 ## API 文档
 
+### 单笔充值详情
+
+登录后调用 `GET /api/deposit/orders/{orderId}`，查看自己的充值金额、交易哈希、区块信息、确认数、订单状态及重组/风险信息。数据来自扫描器已保存的订单，确认进度随后台扫描更新；该查询不主动调用 RPC 或触发入账。成功响应使用 `Cache-Control: no-store`，便于前端轮询单笔进度。
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/deposit/orders/7001
+```
+
+订单不存在或属于其他用户时，统一返回业务码 `404`，不泄露他人订单；非法订单 ID 返回业务码 `400`。业务错误沿用项目约定，以 HTTP 200 携带 `code`。原有充值列表接口保持兼容。
+
 ### 资产流水分页查询
 
 登录后调用 `GET /api/asset/flows/page`，默认每页 20 条，`limit` 可设置为 1–100。可选 `assetId` 按资产筛选，`beforeId` 用于继续查询更小 ID 的记录；只能查询当前登录用户的流水，按流水 ID 降序返回。
