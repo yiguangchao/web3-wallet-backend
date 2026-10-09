@@ -336,6 +336,9 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: 1
+          # Only these reviewed package/version-specific findings are excluded.
+          # Expiration is enforced by Trivy. The SARIF scan above stays unfiltered.
+          trivyignores: .trivyignore.yaml
 
   solidity-protocol-test:
     name: Solidity fuzz and invariant tests

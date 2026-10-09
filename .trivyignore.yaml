@@ -1,0 +1,21 @@
+# Temporary application-specific triage, NOT a dependency patch.
+# See SECURITY.md and RestOnlyMvcGuard. Keep the SARIF report unfiltered.
+vulnerabilities:
+  - id: CVE-2026-47884
+    purls:
+      - pkg:maven/org.springframework/spring-webmvc@6.2.19
+    expired_at: 2026-11-09
+    statement: >-
+      The wallet serves Result JSON responses, has no XSLT views or resolver,
+      and does not map attacker-controlled view names. RestOnlyMvcGuard rejects
+      application view handlers and XSLT beans at startup. Reassess before
+      adding views; migrate to a supported fixed Spring release before expiry.
+  - id: CVE-2026-47890
+    purls:
+      - pkg:maven/org.springframework/spring-webmvc@6.2.19
+    expired_at: 2026-11-09
+    statement: >-
+      The wallet does not stream view fragments over SSE. RestOnlyMvcGuard
+      requires application handlers to return Result JSON envelopes and rejects
+      event-stream mappings at startup. Reassess before adding streaming;
+      migrate to a supported fixed Spring release before expiry.

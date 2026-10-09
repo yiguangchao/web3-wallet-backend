@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.wallet.module.asset.service.SupportedAssetService;
+import com.example.wallet.common.config.RestOnlyMvcGuard;
+import org.springframework.context.annotation.Import;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @WebMvcTest(SupportedAssetController.class)
 @ContextConfiguration(classes = SupportedAssetController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@Import(RestOnlyMvcGuard.class)
 class SupportedAssetControllerTest {
 
     @Autowired
