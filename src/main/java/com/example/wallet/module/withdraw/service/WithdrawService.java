@@ -1,6 +1,7 @@
 package com.example.wallet.module.withdraw.service;
 
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
+import com.example.wallet.module.withdraw.dto.WithdrawOrderResponse;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import java.util.List;
@@ -10,6 +11,8 @@ public interface WithdrawService {
     Long apply(Long userId, WithdrawApplyRequest request);
 
     List<WithdrawOrder> listOrders(Long userId);
+
+    WithdrawOrderResponse getOrder(Long userId, Long orderId);
 
     Integer approveWithdraw(Long orderId, String remark);
 

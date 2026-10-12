@@ -8,6 +8,7 @@ import com.example.wallet.module.asset.entity.SupportedAsset;
 import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
+import com.example.wallet.module.withdraw.dto.WithdrawOrderResponse;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
@@ -109,6 +110,25 @@ public class WithdrawServiceImpl implements WithdrawService {
         return withdrawOrderMapper.selectList(new LambdaQueryWrapper<WithdrawOrder>()
                 .eq(WithdrawOrder::getUserId, userId)
                 .orderByDesc(WithdrawOrder::getCreatedAt));
+    }
+
+    @Override
+    public WithdrawOrderResponse getOrder(Long userId, Long orderId) {
+        if (userId == null || userId <= 0 || orderId == null || orderId <= 0) {
+            throw new BizException(400, "invalid withdrawal order identity");
+        }
+        WithdrawOrder order = withdrawOrderMapper.selectOne(new LambdaQueryWrapper<WithdrawOrder>()
+                .eq(WithdrawOrder::getId, orderId)
+                .eq(WithdrawOrder::getUserId, userId));
+        if (order == null) {
+            throw new BizException(404, "withdrawal order not found");
+        }
+        return new WithdrawOrderResponse(order.getId().toString(), order.getRequestId(),
+                order.getAssetId() == null ? null : order.getAssetId().toString(),
+                order.getChainId(), order.getChain(), order.getTokenSymbol(), order.getTokenAddress(),
+                order.getTokenDecimals(), order.getToAddress(), order.getAmount(), order.getFee(),
+                order.getStatus(), WithdrawStatus.nameOf(order.getStatus()), order.getTxHash(),
+                order.getStatusChangedAt(), order.getCreatedAt(), order.getUpdatedAt());
     }
 
     @Override

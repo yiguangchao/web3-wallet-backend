@@ -1,14 +1,18 @@
 package com.example.wallet.module.withdraw.controller;
 
 import com.example.wallet.common.result.Result;
+import com.example.wallet.common.exception.BizException;
 import com.example.wallet.common.utils.SecurityUtils;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.dto.WithdrawAuditRequest;
+import com.example.wallet.module.withdraw.dto.WithdrawOrderResponse;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.service.WithdrawService;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,6 +39,22 @@ public class WithdrawController {
     @GetMapping("/orders")
     public Result<List<WithdrawOrder>> listOrders() {
         return Result.success(withdrawService.listOrders(SecurityUtils.getCurrentUserId()));
+    }
+
+    @GetMapping("/orders/{orderId}")
+    public ResponseEntity<Result<WithdrawOrderResponse>> getOrder(@PathVariable String orderId) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        long parsedId;
+        try {
+            parsedId = Long.parseLong(orderId);
+        } catch (NumberFormatException ex) {
+            throw new BizException(400, "orderId must be a positive integer");
+        }
+        if (parsedId <= 0) {
+            throw new BizException(400, "orderId must be a positive integer");
+        }
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(Result.success(withdrawService.getOrder(userId, parsedId)));
     }
 
     @PostMapping("/orders/{orderId}/approve")

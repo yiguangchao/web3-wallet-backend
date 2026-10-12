@@ -178,6 +178,17 @@ docker compose up -d redis
 
 ## API 文档
 
+### 单笔提现进度
+
+登录后调用 `GET /api/withdraw/orders/{orderId}`，查询自己的提现金额、手续费、收款地址、交易哈希、状态及更新时间。返回 `status` 数字代码和 `statusName` 枚举名称（例如 `PENDING_REVIEW`、`BROADCASTED`、`CONFIRMED`），供前端展示和轮询。订单 `id` 和 `assetId` 以字符串返回，避免 JavaScript 大整数精度丢失。
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/withdraw/orders/7001
+```
+
+该接口只读取后台已保存的状态，不触发审核、广播或链上同步，成功响应禁止缓存。响应不包含签名密钥标识、热钱包地址、nonce、审核/操作人员及内部风控原因。不存在或非本人订单统一返回业务码 `404`；非法 ID 返回业务码 `400`，沿用 HTTP 200 业务错误封装。原有订单列表和管理员操作接口保持兼容。
+
 ### 单笔充值详情
 
 登录后调用 `GET /api/deposit/orders/{orderId}`，查看自己的充值金额、交易哈希、区块信息、确认数、订单状态及重组/风险信息。数据来自扫描器已保存的订单，确认进度随后台扫描更新；该查询不主动调用 RPC 或触发入账。成功响应使用 `Cache-Control: no-store`，便于前端轮询单笔进度。
