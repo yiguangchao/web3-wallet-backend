@@ -6,6 +6,7 @@ import com.example.wallet.infrastructure.security.JwtTokenProvider;
 import com.example.wallet.module.user.dto.LoginRequest;
 import com.example.wallet.module.user.dto.LoginResponse;
 import com.example.wallet.module.user.dto.RegisterRequest;
+import com.example.wallet.module.user.dto.UserProfileResponse;
 import com.example.wallet.module.user.entity.SysUser;
 import com.example.wallet.module.user.entity.UserRole;
 import com.example.wallet.module.user.mapper.SysUserMapper;
@@ -72,6 +73,19 @@ public class UserServiceImpl implements UserService {
         }
         String token = jwtTokenProvider.createToken(user.getId(), user.getUsername(), user.getRole());
         return new LoginResponse(token, user.getId(), user.getUsername());
+    }
+
+    @Override
+    public UserProfileResponse getProfile(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BizException(401, "请先登录");
+        }
+        SysUser user = userMapper.selectById(userId);
+        if (user == null || !Integer.valueOf(1).equals(user.getStatus())) {
+            throw new BizException(401, "账号不可用，请重新登录");
+        }
+        return new UserProfileResponse(user.getId().toString(), user.getUsername(), user.getEmail(),
+                user.getRole(), user.getCreatedAt());
     }
 
     @Override

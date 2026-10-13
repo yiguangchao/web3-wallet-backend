@@ -178,6 +178,14 @@ docker compose up -d redis
 
 ## API 文档
 
+### 当前账号资料
+
+携带 Bearer Token 调用 `GET /api/user/me`，获取自己的 `id`（字符串）、`username`、`email`、`role` 和 `createdAt`。角色读取当前数据库记录，便于前端刷新账号展示；接口不改变已有 JWT 的权限判定，也不签发新 Token。响应禁止缓存且不包含密码哈希。请求不能指定其他用户 ID。未登录由安全过滤器拒绝；账号不存在或已禁用时返回业务码 `401`（HTTP 200 业务封装）。
+
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:8080/api/user/me
+```
+
 ### 单笔提现进度
 
 登录后调用 `GET /api/withdraw/orders/{orderId}`，查询自己的提现金额、手续费、收款地址、交易哈希、状态及更新时间。返回 `status` 数字代码和 `statusName` 枚举名称（例如 `PENDING_REVIEW`、`BROADCASTED`、`CONFIRMED`），供前端展示和轮询。订单 `id` 和 `assetId` 以字符串返回，避免 JavaScript 大整数精度丢失。
