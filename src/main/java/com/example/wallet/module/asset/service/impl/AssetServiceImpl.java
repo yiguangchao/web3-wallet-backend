@@ -57,6 +57,20 @@ public class AssetServiceImpl implements AssetService {
     }
 
     @Override
+    public AssetAccount getAccount(Long userId, Long assetId) {
+        if (userId == null || userId <= 0 || assetId == null || assetId <= 0) {
+            throw new BizException(400, "invalid asset account identity");
+        }
+        AssetAccount account = assetAccountMapper.selectOne(new LambdaQueryWrapper<AssetAccount>()
+                .eq(AssetAccount::getUserId, userId)
+                .eq(AssetAccount::getAssetId, assetId));
+        if (account == null) {
+            throw new BizException(404, "asset account not found");
+        }
+        return account;
+    }
+
+    @Override
     public List<AssetFlow> listFlows(Long userId) {
         return assetFlowMapper.selectList(new LambdaQueryWrapper<AssetFlow>()
                 .eq(AssetFlow::getUserId, userId)

@@ -11,6 +11,8 @@ public interface AssetService {
 
     List<AssetAccount> listAccounts(Long userId);
 
+    AssetAccount getAccount(Long userId, Long assetId);
+
     List<AssetFlow> listFlows(Long userId);
 
     AssetFlowPage listFlowPage(Long userId, Long assetId, Long beforeId, int limit);

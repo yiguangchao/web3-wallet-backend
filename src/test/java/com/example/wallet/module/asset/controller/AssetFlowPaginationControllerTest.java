@@ -13,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.wallet.common.exception.GlobalExceptionHandler;
 import com.example.wallet.infrastructure.security.LoginUser;
 import com.example.wallet.module.asset.dto.AssetFlowPage;
+import com.example.wallet.module.asset.entity.AssetAccount;
+import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.asset.service.AssetService;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +51,47 @@ class AssetFlowPaginationControllerTest {
     @AfterEach
     void clearAuthentication() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void shouldReadSingleAssetForAuthenticatedUserWithNoStore() throws Exception {
+        AssetAccount account = new AssetAccount();
+        account.setAssetId(42L);
+        account.setAvailableBalance(new java.math.BigDecimal("1.25"));
+        account.setFrozenBalance(new java.math.BigDecimal("0.5"));
+        account.setTotalBalance(new java.math.BigDecimal("1.75"));
+        when(service.getAccount(7L, 42L)).thenReturn(account);
+        mockMvc.perform(get("/api/asset/accounts/42").param("userId", "999"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.availableBalance").value(1.25))
+                .andExpect(jsonPath("$.data.frozenBalance").value(0.5))
+                .andExpect(jsonPath("$.data.totalBalance").value(1.75));
+        verify(service).getAccount(7L, 42L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1", "abc", "9223372036854775808"})
+    void shouldRejectInvalidAccountAssetId(String assetId) throws Exception {
+        mockMvc.perform(get("/api/asset/accounts/" + assetId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(400));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldRejectUnauthenticatedAccountQuery() throws Exception {
+        SecurityContextHolder.clearContext();
+        mockMvc.perform(get("/api/asset/accounts/42"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(401));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldReturnAccountNotFoundWithoutData() throws Exception {
+        when(service.getAccount(7L, 42L)).thenThrow(new BizException(404, "asset account not found"));
+        mockMvc.perform(get("/api/asset/accounts/42"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test

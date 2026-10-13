@@ -178,6 +178,14 @@ docker compose up -d redis
 
 ## API 文档
 
+### 单个资产账户余额
+
+携带 Bearer Token 调用 `GET /api/asset/accounts/{assetId}`，读取自己的某个资产账户及其 `availableBalance`、`frozenBalance`、`totalBalance`。路径参数是支持资产目录中的资产 ID，**不是账户 ID**。响应使用 `Cache-Control: no-store`。查询不创建账户，也不调用链上 RPC；账户尚未创建时返回业务码 `404`，非法资产 ID 返回业务码 `400`，沿用 HTTP 200 业务封装。请求无法指定其他用户，原有账户列表接口保持兼容。
+
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:8080/api/asset/accounts/7001
+```
+
 ### 当前账号资料
 
 携带 Bearer Token 调用 `GET /api/user/me`，获取自己的 `id`（字符串）、`username`、`email`、`role` 和 `createdAt`。角色读取当前数据库记录，便于前端刷新账号展示；接口不改变已有 JWT 的权限判定，也不签发新 Token。响应禁止缓存且不包含密码哈希。请求不能指定其他用户 ID。未登录由安全过滤器拒绝；账号不存在或已禁用时返回业务码 `401`（HTTP 200 业务封装）。

@@ -11,6 +11,7 @@ import java.util.List;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,6 +34,13 @@ public class AssetController {
     @GetMapping("/flows")
     public Result<List<AssetFlow>> listFlows() {
         return Result.success(assetService.listFlows(SecurityUtils.getCurrentUserId()));
+    }
+
+    @GetMapping("/accounts/{assetId}")
+    public ResponseEntity<Result<AssetAccount>> getAccount(@PathVariable String assetId) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(Result.success(assetService.getAccount(userId, parsePositiveId(assetId))));
     }
 
     @GetMapping("/flows/page")
