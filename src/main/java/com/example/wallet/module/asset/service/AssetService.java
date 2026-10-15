@@ -15,6 +15,8 @@ public interface AssetService {
 
     List<AssetFlow> listFlows(Long userId);
 
+    AssetFlow getFlow(Long userId, Long flowId);
+
     AssetFlowPage listFlowPage(Long userId, Long assetId, Long beforeId, int limit);
 
     void creditDeposit(Long userId, SupportedAsset asset, BigDecimal amount, Long businessId, String txHash);

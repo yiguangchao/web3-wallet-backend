@@ -178,6 +178,14 @@ docker compose up -d redis
 
 ## API 文档
 
+### 单笔资产流水详情
+
+携带 Bearer Token 调用 `GET /api/asset/flows/{flowId}`，读取自己的单笔流水，包括业务类型/编号、金额、可用与冻结余额变动前后的快照、交易哈希和创建时间。路径参数为流水 ID，成功响应禁止缓存。不存在或非本人流水统一返回业务码 `404`，非法 ID 返回业务码 `400`，沿用 HTTP 200 业务封装。查询不修改账本或调用链上 RPC，现有 `/flows` 和 `/flows/page` 保持兼容。
+
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:8080/api/asset/flows/7001
+```
+
 ### 单个资产账户余额
 
 携带 Bearer Token 调用 `GET /api/asset/accounts/{assetId}`，读取自己的某个资产账户及其 `availableBalance`、`frozenBalance`、`totalBalance`。路径参数是支持资产目录中的资产 ID，**不是账户 ID**。响应使用 `Cache-Control: no-store`。查询不创建账户，也不调用链上 RPC；账户尚未创建时返回业务码 `404`，非法资产 ID 返回业务码 `400`，沿用 HTTP 200 业务封装。请求无法指定其他用户，原有账户列表接口保持兼容。

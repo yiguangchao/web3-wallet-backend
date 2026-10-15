@@ -35,6 +35,34 @@ class AssetFlowPaginationTest {
     }
 
     @Test
+    void shouldQuerySingleFlowByOwnerAndId() {
+        AssetFlow entry = flow(99L);
+        when(mapper.selectOne(any())).thenAnswer(invocation -> {
+            LambdaQueryWrapper<AssetFlow> query = invocation.getArgument(0);
+            assertThat(query.getSqlSegment()).contains("user_id =", "AND id =");
+            assertThat(query.getParamNameValuePairs().values()).containsExactlyInAnyOrder(7L, 99L);
+            return entry;
+        });
+        assertThat(service.getFlow(7L, 99L)).isSameAs(entry);
+    }
+
+    @Test
+    void shouldReturnNotFoundForMissingOrUnownedFlow() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        assertThatThrownBy(() -> service.getFlow(7L, 99L)).isInstanceOf(BizException.class)
+                .hasMessage("asset flow not found").extracting("code").isEqualTo(404);
+    }
+
+    @Test
+    void shouldRejectInvalidFlowIdentityBeforeQuery() {
+        assertThatThrownBy(() -> service.getFlow(null, 99L)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.getFlow(0L, 99L)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.getFlow(7L, null)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.getFlow(7L, -1L)).isInstanceOf(BizException.class);
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
     void shouldScopeQueryToUserAssetAndExclusiveCursorAndTrimLookahead() {
         when(mapper.selectList(any())).thenAnswer(invocation -> {
             LambdaQueryWrapper<AssetFlow> query = invocation.getArgument(0);

@@ -1,5 +1,7 @@
 # web3-wallet-backend
 
+Call `GET /api/asset/flows/{flowId}` with a Bearer token to inspect your own ledger entry, including business type/ID, amount, before/after available and frozen balances, transaction hash, and creation time. Successful responses prohibit caching. Missing and unowned entries both return business code 404; invalid IDs return 400 in the existing HTTP 200 envelope. Reads neither modify the ledger nor call chain RPC. Existing `/flows` and `/flows/page` endpoints remain compatible.
+
 Call `GET /api/asset/accounts/{assetId}` with a Bearer token to read your own available, frozen, and total ledger balances for one asset. The path identifies the supported asset, not the account. Successful responses use `Cache-Control: no-store`. Reads never create accounts or call chain RPC; an account that has not been created returns business code 404, and invalid asset IDs return 400 in the existing HTTP 200 envelope. Clients cannot choose another user; the account list endpoint remains compatible.
 
 Call `GET /api/user/me` with a Bearer token to retrieve your own profile: string `id`, `username`, `email`, current database `role`, and `createdAt`. Successful responses prohibit caching and exclude password hashes. The endpoint never accepts a target user ID. Missing authentication is rejected by security filters; deleted or disabled accounts return business code 401 in the HTTP 200 envelope. The database role is for profile display; this read neither changes existing JWT authorization nor issues a new token.

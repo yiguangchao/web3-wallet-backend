@@ -60,6 +60,13 @@ public class AssetController {
                         userId, parsedAssetId, parsedBeforeId, parsedLimit.intValue())));
     }
 
+    @GetMapping("/flows/{flowId}")
+    public ResponseEntity<Result<AssetFlow>> getFlow(@PathVariable String flowId) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(Result.success(assetService.getFlow(userId, parsePositiveId(flowId))));
+    }
+
     private Long parsePositiveId(String value) {
         if (value == null) {
             return null;

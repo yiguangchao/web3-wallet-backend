@@ -96,6 +96,20 @@ public class AssetServiceImpl implements AssetService {
     }
 
     @Override
+    public AssetFlow getFlow(Long userId, Long flowId) {
+        if (userId == null || userId <= 0 || flowId == null || flowId <= 0) {
+            throw new BizException(400, "invalid asset flow identity");
+        }
+        AssetFlow flow = assetFlowMapper.selectOne(new LambdaQueryWrapper<AssetFlow>()
+                .eq(AssetFlow::getUserId, userId)
+                .eq(AssetFlow::getId, flowId));
+        if (flow == null) {
+            throw new BizException(404, "asset flow not found");
+        }
+        return flow;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void creditDeposit(Long userId, SupportedAsset asset, BigDecimal amount,
                               Long businessId, String txHash) {
