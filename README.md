@@ -224,6 +224,17 @@ curl -H "Authorization: Bearer <token>" \
 
 订单不存在或属于其他用户时，统一返回业务码 `404`，不泄露他人订单；非法订单 ID 返回业务码 `400`。业务错误沿用项目约定，以 HTTP 200 携带 `code`。原有充值列表接口保持兼容。
 
+### 充值记录分页查询
+
+登录后调用 `GET /api/deposit/orders/page`，按订单 ID 降序查询自己的充值记录。默认每页 20 条，`limit` 范围为 1–100；可选 `assetId` 按资产筛选，`beforeId` 查询比游标 ID 更小的订单。
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  'http://localhost:8080/api/deposit/orders/page?assetId=7001&limit=20'
+```
+
+响应 `data` 包含 `items`、`hasMore` 和 `nextCursor`。当 `hasMore=true` 时，将字符串 `nextCursor` 原样作为下一次请求的 `beforeId`，并保持相同的资产筛选条件；末页和空页的 `nextCursor=null`。ID 排序不代表链上交易时间顺序；历史充值可能在后续扫描中才被发现。游标以字符串返回，避免 JavaScript 大整数精度丢失。成功响应禁止缓存，非法参数以 HTTP 200 返回业务码 `400`；未登录由安全过滤器返回 HTTP 401。原有 `/api/deposit/orders` 保持兼容，新客户端建议使用分页接口。
+
 ### 资产流水分页查询
 
 登录后调用 `GET /api/asset/flows/page`，默认每页 20 条，`limit` 可设置为 1–100。可选 `assetId` 按资产筛选，`beforeId` 用于继续查询更小 ID 的记录；只能查询当前登录用户的流水，按流水 ID 降序返回。

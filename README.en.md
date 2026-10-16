@@ -31,6 +31,10 @@ For security reporting and supported-version guidance, see [SECURITY.md](SECURIT
 
 A Web3 Java backend and blockchain custodial-wallet service built with Spring Boot and Web3j. It supports platform-controlled HD deposit-address allocation, ETH/ERC-20 deposit scanning and sweeping, an internal asset ledger, withdrawal review, isolated signing, transaction broadcasting, reconciliation, and operational monitoring.
 
+## Deposit history pagination
+
+Authenticated clients can call `GET /api/deposit/orders/page?assetId=7001&limit=20` to load their own deposit history in descending order ID. `assetId` is optional. `limit` defaults to 20 and accepts 1–100. The response `data` contains `items`, `hasMore`, and `nextCursor`. When `hasMore` is true, pass the string `nextCursor` unchanged as `beforeId` on the next request, keeping the same asset filter. The cursor is exclusive and becomes null on the last or empty page. ID order does not represent blockchain transaction time; historical deposits may be discovered by later scans. String cursors preserve large integer precision in JavaScript. Successful responses use `Cache-Control: no-store`. Invalid parameters return business code 400 in the existing HTTP 200 error envelope; the security filter returns HTTP 401 for unauthenticated requests. The original `/api/deposit/orders` endpoint remains compatible.
+
 ## Repository guide
 
 | Path | Contents |
