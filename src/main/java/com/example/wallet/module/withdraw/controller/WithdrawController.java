@@ -6,6 +6,8 @@ import com.example.wallet.common.utils.SecurityUtils;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.dto.WithdrawAuditRequest;
 import com.example.wallet.module.withdraw.dto.WithdrawOrderResponse;
+import com.example.wallet.module.withdraw.dto.WithdrawOrderPage;
+import com.example.wallet.module.withdraw.entity.WithdrawStatus;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.service.WithdrawService;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.access.prepost.PreAuthorize;
 
@@ -39,6 +42,47 @@ public class WithdrawController {
     @GetMapping("/orders")
     public Result<List<WithdrawOrder>> listOrders() {
         return Result.success(withdrawService.listOrders(SecurityUtils.getCurrentUserId()));
+    }
+
+    @GetMapping("/orders/page")
+    public ResponseEntity<Result<WithdrawOrderPage>> listOrderPage(
+            @RequestParam(required = false) String assetId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String beforeId,
+            @RequestParam(defaultValue = "20") String limit) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Long parsedAssetId = parsePositiveId(assetId);
+        Long parsedBeforeId = parsePositiveId(beforeId);
+        Long parsedLimit = parsePositiveId(limit);
+        if (parsedLimit == null || parsedLimit > 100) {
+            throw new BizException(400, "limit must be between 1 and 100");
+        }
+        WithdrawStatus parsedStatus = null;
+        if (status != null) {
+            try {
+                parsedStatus = WithdrawStatus.valueOf(status);
+            } catch (IllegalArgumentException ex) {
+                throw new BizException(400, "status must be a withdrawal status name");
+            }
+        }
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(Result.success(withdrawService.listOrderPage(
+                        userId, parsedAssetId, parsedStatus, parsedBeforeId, parsedLimit.intValue())));
+    }
+
+    private Long parsePositiveId(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            long parsed = Long.parseLong(value);
+            if (parsed > 0) {
+                return parsed;
+            }
+        } catch (NumberFormatException ignored) {
+            // Invalid or overflowing input is a client error.
+        }
+        throw new BizException(400, "pagination parameters must be positive integers");
     }
 
     @GetMapping("/orders/{orderId}")
