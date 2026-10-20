@@ -9,6 +9,7 @@ import com.example.wallet.module.asset.service.AssetService;
 import com.example.wallet.module.asset.service.SupportedAssetService;
 import com.example.wallet.module.withdraw.dto.WithdrawApplyRequest;
 import com.example.wallet.module.withdraw.dto.WithdrawOrderResponse;
+import com.example.wallet.module.withdraw.dto.WithdrawOrderPage;
 import com.example.wallet.module.withdraw.entity.WithdrawOrder;
 import com.example.wallet.module.withdraw.entity.WithdrawOperationLog;
 import com.example.wallet.module.withdraw.entity.WithdrawStatus;
@@ -113,6 +114,25 @@ public class WithdrawServiceImpl implements WithdrawService {
     }
 
     @Override
+    public WithdrawOrderPage listOrderPage(Long userId, Long assetId, WithdrawStatus status, Long beforeId, int limit) {
+        if (userId == null || userId <= 0 || limit < 1 || limit > 100
+                || (assetId != null && assetId <= 0) || (beforeId != null && beforeId <= 0)) {
+            throw new BizException(400, "invalid withdrawal order pagination parameters");
+        }
+        List<WithdrawOrder> rows = withdrawOrderMapper.selectList(new LambdaQueryWrapper<WithdrawOrder>()
+                .eq(WithdrawOrder::getUserId, userId)
+                .eq(assetId != null, WithdrawOrder::getAssetId, assetId)
+                .eq(status != null, WithdrawOrder::getStatus, status == null ? null : status.getCode())
+                .lt(beforeId != null, WithdrawOrder::getId, beforeId)
+                .orderByDesc(WithdrawOrder::getId)
+                .last("LIMIT " + (limit + 1)));
+        boolean hasMore = rows.size() > limit;
+        List<WithdrawOrderResponse> items = rows.stream().limit(limit).map(this::toResponse).toList();
+        String nextCursor = hasMore ? items.get(items.size() - 1).id() : null;
+        return new WithdrawOrderPage(items, nextCursor, hasMore);
+    }
+
+    @Override
     public WithdrawOrderResponse getOrder(Long userId, Long orderId) {
         if (userId == null || userId <= 0 || orderId == null || orderId <= 0) {
             throw new BizException(400, "invalid withdrawal order identity");
@@ -123,6 +143,10 @@ public class WithdrawServiceImpl implements WithdrawService {
         if (order == null) {
             throw new BizException(404, "withdrawal order not found");
         }
+        return toResponse(order);
+    }
+
+    private WithdrawOrderResponse toResponse(WithdrawOrder order) {
         return new WithdrawOrderResponse(order.getId().toString(), order.getRequestId(),
                 order.getAssetId() == null ? null : order.getAssetId().toString(),
                 order.getChainId(), order.getChain(), order.getTokenSymbol(), order.getTokenAddress(),
