@@ -6,6 +6,7 @@ import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.asset.dto.AssetFlowPage;
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
+import com.example.wallet.module.asset.entity.AssetFlowBusinessType;
 import com.example.wallet.module.asset.entity.AssetFreezeDetail;
 import com.example.wallet.module.asset.entity.AssetRiskFreezeDetail;
 import com.example.wallet.module.asset.entity.AssetFreezeStatus;
@@ -79,6 +80,12 @@ public class AssetServiceImpl implements AssetService {
 
     @Override
     public AssetFlowPage listFlowPage(Long userId, Long assetId, Long beforeId, int limit) {
+        return listFlowPage(userId, assetId, null, beforeId, limit);
+    }
+
+    @Override
+    public AssetFlowPage listFlowPage(Long userId, Long assetId, AssetFlowBusinessType businessType,
+                                      Long beforeId, int limit) {
         if (userId == null || userId <= 0 || limit < 1 || limit > 100
                 || (assetId != null && assetId <= 0) || (beforeId != null && beforeId <= 0)) {
             throw new BizException(400, "invalid asset flow pagination parameters");
@@ -86,6 +93,8 @@ public class AssetServiceImpl implements AssetService {
         List<AssetFlow> rows = assetFlowMapper.selectList(new LambdaQueryWrapper<AssetFlow>()
                 .eq(AssetFlow::getUserId, userId)
                 .eq(assetId != null, AssetFlow::getAssetId, assetId)
+                .eq(businessType != null, AssetFlow::getBusinessType,
+                        businessType == null ? null : businessType.name())
                 .lt(beforeId != null, AssetFlow::getId, beforeId)
                 .orderByDesc(AssetFlow::getId)
                 .last("LIMIT " + (limit + 1)));

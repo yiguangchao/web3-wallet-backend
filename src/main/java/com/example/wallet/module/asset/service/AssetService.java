@@ -3,6 +3,7 @@ package com.example.wallet.module.asset.service;
 import com.example.wallet.module.asset.dto.AssetFlowPage;
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
+import com.example.wallet.module.asset.entity.AssetFlowBusinessType;
 import com.example.wallet.module.asset.entity.SupportedAsset;
 import java.math.BigDecimal;
 import java.util.List;
@@ -18,6 +19,8 @@ public interface AssetService {
     AssetFlow getFlow(Long userId, Long flowId);
 
     AssetFlowPage listFlowPage(Long userId, Long assetId, Long beforeId, int limit);
+
+    AssetFlowPage listFlowPage(Long userId, Long assetId, AssetFlowBusinessType businessType, Long beforeId, int limit);
 
     void creditDeposit(Long userId, SupportedAsset asset, BigDecimal amount, Long businessId, String txHash);
 

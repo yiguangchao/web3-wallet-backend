@@ -6,6 +6,7 @@ import com.example.wallet.common.utils.SecurityUtils;
 import com.example.wallet.module.asset.dto.AssetFlowPage;
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
+import com.example.wallet.module.asset.entity.AssetFlowBusinessType;
 import com.example.wallet.module.asset.service.AssetService;
 import java.util.List;
 import org.springframework.http.CacheControl;
@@ -46,6 +47,7 @@ public class AssetController {
     @GetMapping("/flows/page")
     public ResponseEntity<Result<AssetFlowPage>> listFlowPage(
             @RequestParam(required = false) String assetId,
+            @RequestParam(required = false) String businessType,
             @RequestParam(required = false) String beforeId,
             @RequestParam(defaultValue = "20") String limit) {
         Long userId = SecurityUtils.getCurrentUserId();
@@ -57,7 +59,8 @@ public class AssetController {
         }
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(Result.success(assetService.listFlowPage(
-                        userId, parsedAssetId, parsedBeforeId, parsedLimit.intValue())));
+                        userId, parsedAssetId, AssetFlowBusinessType.fromName(businessType),
+                        parsedBeforeId, parsedLimit.intValue())));
     }
 
     @GetMapping("/flows/{flowId}")
