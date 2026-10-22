@@ -202,6 +202,17 @@ curl -H "Authorization: Bearer <token>" http://localhost:8080/api/asset/accounts
 curl -H "Authorization: Bearer <token>" http://localhost:8080/api/user/me
 ```
 
+### 提现记录分页查询
+
+登录后调用 `GET /api/withdraw/orders/page`，按订单 ID 降序查询自己的提现记录，默认每页 20 条，`limit` 范围为 1–100。可选 `assetId` 按资产筛选，`status` 使用大写状态名称（例如 `PENDING_REVIEW`、`BROADCASTED`、`CONFIRMED`），省略时查询所有状态。
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  'http://localhost:8080/api/withdraw/orders/page?status=PENDING_REVIEW&limit=20'
+```
+
+响应 `data` 包含 `items`、`hasMore` 和 `nextCursor`。当 `hasMore=true` 时，将字符串游标原样传入下一次请求的 `beforeId`，并保留相同的资产和状态筛选条件；末页或空页的游标为 `null`。订单 ID、资产 ID 和游标以字符串返回。每条记录沿用单笔提现详情的公开字段，不包含签名密钥、nonce、操作人员或内部风控原因。查询不触发审核、广播或链上同步，成功响应禁止缓存。非法参数以 HTTP 200 返回业务码 `400`，未登录由安全过滤器返回 HTTP 401。状态会随后台处理变化，分页期间结果不保证快照一致；刷新时从首页重新查询。原有列表和详情接口保持兼容。
+
 ### 单笔提现进度
 
 登录后调用 `GET /api/withdraw/orders/{orderId}`，查询自己的提现金额、手续费、收款地址、交易哈希、状态及更新时间。返回 `status` 数字代码和 `statusName` 枚举名称（例如 `PENDING_REVIEW`、`BROADCASTED`、`CONFIRMED`），供前端展示和轮询。订单 `id` 和 `assetId` 以字符串返回，避免 JavaScript 大整数精度丢失。
@@ -236,6 +247,8 @@ curl -H "Authorization: Bearer <token>" \
 响应 `data` 包含 `items`、`hasMore` 和 `nextCursor`。当 `hasMore=true` 时，将字符串 `nextCursor` 原样作为下一次请求的 `beforeId`，并保持相同的资产筛选条件；末页和空页的 `nextCursor=null`。ID 排序不代表链上交易时间顺序；历史充值可能在后续扫描中才被发现。游标以字符串返回，避免 JavaScript 大整数精度丢失。成功响应禁止缓存，非法参数以 HTTP 200 返回业务码 `400`；未登录由安全过滤器返回 HTTP 401。原有 `/api/deposit/orders` 保持兼容，新客户端建议使用分页接口。
 
 ### 资产流水分页查询
+
+可选参数 `businessType` 可按业务类型精确筛选，并可与 `assetId`、`beforeId`、`limit` 组合使用，例如 `GET /api/asset/flows/page?assetId=7001&businessType=DEPOSIT&limit=20`。支持以下大写名称：`DEPOSIT`（充值入账）、`DEPOSIT_REORG`（重组冲正）、`DEPOSIT_REORG_RISK`（重组风险冻结）、`WITHDRAW_FREEZE`（提现冻结）、`WITHDRAW_CONFIRM`（提现结算）、`WITHDRAW_RELEASE`（提现解冻）。省略时返回全部类型；空字符串、未知名称或小写名称返回业务码 `400`。继续翻页时必须保留相同的资产和业务类型筛选条件。筛选只查询当前登录用户的已保存流水，不改变余额或触发链上操作，响应结构保持兼容。
 
 登录后调用 `GET /api/asset/flows/page`，默认每页 20 条，`limit` 可设置为 1–100。可选 `assetId` 按资产筛选，`beforeId` 用于继续查询更小 ID 的记录；只能查询当前登录用户的流水，按流水 ID 降序返回。
 
