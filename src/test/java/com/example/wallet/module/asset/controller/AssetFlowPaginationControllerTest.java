@@ -15,6 +15,7 @@ import com.example.wallet.infrastructure.security.LoginUser;
 import com.example.wallet.module.asset.dto.AssetFlowPage;
 import com.example.wallet.module.asset.entity.AssetAccount;
 import com.example.wallet.module.asset.entity.AssetFlow;
+import com.example.wallet.module.asset.entity.AssetFlowBusinessType;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.asset.service.AssetService;
 import java.util.List;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -136,7 +138,7 @@ class AssetFlowPaginationControllerTest {
 
     @Test
     void shouldUseAuthenticatedUserAndDefaultLimit() throws Exception {
-        when(service.listFlowPage(any(), any(), any(), anyInt()))
+        when(service.listFlowPage(any(), any(), any(), any(), anyInt()))
                 .thenReturn(new AssetFlowPage(List.of(), null, false));
         mockMvc.perform(get("/api/asset/flows/page").param("userId", "999"))
                 .andExpect(status().isOk())
@@ -144,18 +146,42 @@ class AssetFlowPaginationControllerTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.hasMore").value(false));
-        verify(service).listFlowPage(7L, null, null, 20);
+        verify(service).listFlowPage(7L, null, null, null, 20);
     }
 
     @Test
     void shouldPreserveLargeCursorAndApplyAssetFilter() throws Exception {
-        when(service.listFlowPage(any(), any(), any(), anyInt()))
+        when(service.listFlowPage(any(), any(), any(), any(), anyInt()))
                 .thenReturn(new AssetFlowPage(List.of(), "9007199254740993", true));
         mockMvc.perform(get("/api/asset/flows/page").param("assetId", "42")
                         .param("beforeId", "9007199254740994").param("limit", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.nextCursor").value("9007199254740993"));
-        verify(service).listFlowPage(7L, 42L, 9007199254740994L, 10);
+        verify(service).listFlowPage(7L, 42L, null, 9007199254740994L, 10);
+    }
+
+    @ParameterizedTest
+    @EnumSource(AssetFlowBusinessType.class)
+    void shouldCombineBusinessTypeWithAssetAndCursorForAuthenticatedOwner(AssetFlowBusinessType type) throws Exception {
+        AssetFlow flow = new AssetFlow();
+        flow.setBusinessType(type.name());
+        when(service.listFlowPage(7L, 42L, type, 9007199254740994L, 10))
+                .thenReturn(new AssetFlowPage(List.of(flow), "9007199254740993", true));
+        mockMvc.perform(get("/api/asset/flows/page").param("userId", "999")
+                        .param("assetId", "42").param("businessType", type.name())
+                        .param("beforeId", "9007199254740994").param("limit", "10"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.items[0].businessType").value(type.name()))
+                .andExpect(jsonPath("$.data.nextCursor").value("9007199254740993"));
+        verify(service).listFlowPage(7L, 42L, type, 9007199254740994L, 10);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "deposit", " DEPOSIT", "UNKNOWN", "0", "DEPOSIT' OR 1=1 --"})
+    void shouldRejectUnknownBusinessTypeBeforeServiceAccess(String type) throws Exception {
+        mockMvc.perform(get("/api/asset/flows/page").param("businessType", type))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(400));
+        verifyNoInteractions(service);
     }
 
     @ParameterizedTest

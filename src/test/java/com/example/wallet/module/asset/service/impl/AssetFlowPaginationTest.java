@@ -12,6 +12,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.example.wallet.common.exception.BizException;
 import com.example.wallet.module.asset.entity.AssetFlow;
+import com.example.wallet.module.asset.entity.AssetFlowBusinessType;
 import com.example.wallet.module.asset.mapper.AssetAccountMapper;
 import com.example.wallet.module.asset.mapper.AssetFlowMapper;
 import com.example.wallet.module.asset.mapper.AssetFreezeDetailMapper;
@@ -20,6 +21,8 @@ import java.util.List;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class AssetFlowPaginationTest {
 
@@ -78,12 +81,29 @@ class AssetFlowPaginationTest {
         assertThat(page.nextCursor()).isEqualTo("98");
     }
 
+    @ParameterizedTest
+    @EnumSource(AssetFlowBusinessType.class)
+    void shouldBindBusinessTypeAndPreserveOwnerAssetAndExclusiveCursor(AssetFlowBusinessType type) {
+        when(mapper.selectList(any())).thenAnswer(invocation -> {
+            LambdaQueryWrapper<AssetFlow> query = invocation.getArgument(0);
+            assertThat(query.getSqlSegment()).contains("user_id =", "asset_id =", "business_type =", "id <",
+                    "ORDER BY id DESC", "LIMIT 3");
+            assertThat(query.getParamNameValuePairs().values())
+                    .containsExactlyInAnyOrder(7L, 42L, type.name(), 100L);
+            return List.of(flow(99L), flow(98L), flow(97L));
+        });
+        var page = service.listFlowPage(7L, 42L, type, 100L, 2);
+        assertThat(page.items()).extracting(AssetFlow::getId).containsExactly(99L, 98L);
+        assertThat(page.hasMore()).isTrue();
+        assertThat(page.nextCursor()).isEqualTo("98");
+    }
+
     @Test
     void shouldReturnNoCursorForLastPageAndAvoidOptionalFilters() {
         when(mapper.selectList(any())).thenAnswer(invocation -> {
             LambdaQueryWrapper<AssetFlow> query = invocation.getArgument(0);
             assertThat(query.getSqlSegment()).contains("user_id =", "LIMIT 3")
-                    .doesNotContain("asset_id =", "id <");
+                    .doesNotContain("asset_id =", "id <", "business_type =");
             return List.of(flow(99L), flow(98L));
         });
         var page = service.listFlowPage(7L, null, null, 2);
