@@ -12,6 +12,7 @@ import com.example.wallet.common.exception.BizException;
 import com.example.wallet.common.exception.GlobalExceptionHandler;
 import com.example.wallet.infrastructure.security.LoginUser;
 import com.example.wallet.module.deposit.entity.DepositOrder;
+import com.example.wallet.module.deposit.dto.DepositOrderPage;
 import com.example.wallet.module.deposit.service.DepositService;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -48,6 +49,49 @@ class DepositControllerTest {
     @AfterEach
     void clearAuthentication() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void shouldReturnDefaultPageWithoutCaching() throws Exception {
+        when(service.listOrderPage(7L, null, null, 20))
+                .thenReturn(new DepositOrderPage(List.of(), null, false));
+        mockMvc.perform(get("/api/deposit/orders/page").param("userId", "999"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.hasMore").value(false));
+        verify(service).listOrderPage(7L, null, null, 20);
+    }
+
+    @Test
+    void shouldParseFiltersAndPreserveLargeCursor() throws Exception {
+        when(service.listOrderPage(7L, 42L, 9007199254740994L, 1))
+                .thenReturn(new DepositOrderPage(List.of(new DepositOrder()), "9007199254740993", true));
+        mockMvc.perform(get("/api/deposit/orders/page").param("assetId", "42")
+                        .param("beforeId", "9007199254740994").param("limit", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.nextCursor").value("9007199254740993"))
+                .andExpect(jsonPath("$.data.hasMore").value(true));
+        verify(service).listOrderPage(7L, 42L, 9007199254740994L, 1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"assetId=0", "assetId=abc", "assetId=", "beforeId=-1",
+            "beforeId=9223372036854775808", "beforeId=", "limit=0", "limit=101", "limit=abc",
+            "limit=9223372036854775808"})
+    void shouldRejectInvalidPagination(String parameter) throws Exception {
+        String[] parts = parameter.split("=", -1);
+        mockMvc.perform(get("/api/deposit/orders/page").param(parts[0], parts[1]))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(400));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldRequireLoginForPagination() throws Exception {
+        SecurityContextHolder.clearContext();
+        mockMvc.perform(get("/api/deposit/orders/page"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(401));
+        verifyNoInteractions(service);
     }
 
     @Test
