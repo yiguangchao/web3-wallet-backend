@@ -12,6 +12,8 @@ import com.example.wallet.common.exception.BizException;
 import com.example.wallet.common.exception.GlobalExceptionHandler;
 import com.example.wallet.infrastructure.security.LoginUser;
 import com.example.wallet.module.withdraw.dto.WithdrawOrderResponse;
+import com.example.wallet.module.withdraw.dto.WithdrawOrderPage;
+import com.example.wallet.module.withdraw.entity.WithdrawStatus;
 import com.example.wallet.module.withdraw.service.WithdrawService;
 import java.math.BigDecimal;
 import java.util.List;
@@ -48,6 +50,60 @@ class WithdrawOrderQueryControllerTest {
 
     @AfterEach
     void clearAuthentication() { SecurityContextHolder.clearContext(); }
+
+    @Test
+    void shouldReturnDefaultPageForAuthenticatedOwner() throws Exception {
+        when(service.listOrderPage(7L, null, null, null, 20))
+                .thenReturn(new WithdrawOrderPage(List.of(), null, false));
+        mockMvc.perform(get("/api/withdraw/orders/page").param("userId", "999"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.hasMore").value(false));
+        verify(service).listOrderPage(7L, null, null, null, 20);
+    }
+
+    @Test
+    void shouldReturnFilteredPageWithExactIdsAndNoOperationalFields() throws Exception {
+        var response = new WithdrawOrderResponse("9007199254740993", "request-1", "7001", 11155111L,
+                "ETH", "ETH", null, 18, "0xrecipient", BigDecimal.ONE, BigDecimal.ZERO,
+                2, "BROADCASTED", "0xhash", null, null, null);
+        when(service.listOrderPage(7L, 7001L, WithdrawStatus.BROADCASTED, 9007199254740994L, 1))
+                .thenReturn(new WithdrawOrderPage(List.of(response), "9007199254740993", true));
+        mockMvc.perform(get("/api/withdraw/orders/page").param("assetId", "7001")
+                        .param("status", "BROADCASTED").param("beforeId", "9007199254740994").param("limit", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items[0].id").value("9007199254740993"))
+                .andExpect(jsonPath("$.data.items[0].assetId").value("7001"))
+                .andExpect(jsonPath("$.data.items[0].statusName").value("BROADCASTED"))
+                .andExpect(jsonPath("$.data.items[0].signerKeyId").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].hotWalletAddress").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].nonce").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].reviewerUserId").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].operatorUserId").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].manualReviewReason").doesNotExist())
+                .andExpect(jsonPath("$.data.nextCursor").value("9007199254740993"))
+                .andExpect(jsonPath("$.data.hasMore").value(true));
+        verify(service).listOrderPage(7L, 7001L, WithdrawStatus.BROADCASTED, 9007199254740994L, 1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"assetId=0", "assetId=abc", "assetId=", "beforeId=-1", "beforeId=",
+            "beforeId=9223372036854775808", "limit=0", "limit=101", "limit=abc",
+            "limit=9223372036854775808", "status=", "status=unknown", "status=2", "status=confirmed"})
+    void shouldRejectInvalidPagination(String parameter) throws Exception {
+        String[] parts = parameter.split("=", -1);
+        mockMvc.perform(get("/api/withdraw/orders/page").param(parts[0], parts[1]))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(400));
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void shouldRequireLoginForPagination() throws Exception {
+        SecurityContextHolder.clearContext();
+        mockMvc.perform(get("/api/withdraw/orders/page"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(401));
+        verifyNoInteractions(service);
+    }
 
     @Test
     void shouldReturnPublicProgressWithExactLargeIdAndNoOperationalFields() throws Exception {

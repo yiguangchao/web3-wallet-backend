@@ -23,6 +23,7 @@ import com.example.wallet.module.withdraw.service.WithdrawAuditService;
 import com.example.wallet.module.withdraw.service.WithdrawChainLifecycleService;
 import com.example.wallet.module.withdraw.service.WithdrawTransactionPreparationService;
 import java.math.BigDecimal;
+import java.util.List;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,73 @@ class WithdrawOrderQueryTest {
         service = new WithdrawServiceImpl(mapper, web3, assets, mock(SupportedAssetService.class), audit,
                 mock(WithdrawTransactionPreparationService.class), lifecycle, mock(RiskControlService.class),
                 mock(AuditActorProvider.class));
+    }
+
+    @ParameterizedTest
+    @EnumSource(WithdrawStatus.class)
+    void shouldScopePageToOwnerAssetStatusAndExclusiveCursor(WithdrawStatus status) {
+        when(mapper.selectList(any())).thenAnswer(invocation -> {
+            LambdaQueryWrapper<WithdrawOrder> query = invocation.getArgument(0);
+            assertThat(query.getSqlSegment()).contains("user_id =", "asset_id =", "status =", "id <",
+                    "ORDER BY id DESC", "LIMIT 3");
+            assertThat(query.getParamNameValuePairs().values())
+                    .containsExactlyInAnyOrder(7L, 42L, status.getCode(), 9007199254740995L);
+            return List.of(order(9007199254740994L, status), order(9007199254740993L, status), order(80L, status));
+        });
+        var page = service.listOrderPage(7L, 42L, status, 9007199254740995L, 2);
+        assertThat(page.items()).extracting(item -> item.id())
+                .containsExactly("9007199254740994", "9007199254740993");
+        assertThat(page.items()).allSatisfy(item -> {
+            assertThat(item.status()).isEqualTo(status.getCode());
+            assertThat(item.statusName()).isEqualTo(status.name());
+        });
+        assertThat(page.hasMore()).isTrue();
+        assertThat(page.nextCursor()).isEqualTo("9007199254740993");
+        verifyNoInteractions(web3, assets, lifecycle, audit);
+    }
+
+    @Test
+    void shouldOmitOptionalFiltersAndReturnNoCursorOnExactLastPage() {
+        when(mapper.selectList(any())).thenAnswer(invocation -> {
+            LambdaQueryWrapper<WithdrawOrder> query = invocation.getArgument(0);
+            assertThat(query.getSqlSegment()).contains("user_id =", "ORDER BY id DESC", "LIMIT 2")
+                    .doesNotContain("asset_id =", "status =", "id <");
+            assertThat(query.getParamNameValuePairs().values()).containsExactly(7L);
+            return List.of(order(80L, WithdrawStatus.CONFIRMED));
+        });
+        var page = service.listOrderPage(7L, null, null, null, 1);
+        assertThat(page.items()).hasSize(1);
+        assertThat(page.hasMore()).isFalse();
+        assertThat(page.nextCursor()).isNull();
+    }
+
+    @Test
+    void shouldReturnEmptyPage() {
+        when(mapper.selectList(any())).thenReturn(List.of());
+        var page = service.listOrderPage(7L, null, null, null, 20);
+        assertThat(page.items()).isEmpty();
+        assertThat(page.hasMore()).isFalse();
+        assertThat(page.nextCursor()).isNull();
+    }
+
+    @Test
+    void shouldRejectInvalidPaginationBeforeQuery() {
+        assertThatThrownBy(() -> service.listOrderPage(null, null, null, null, 20)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.listOrderPage(0L, null, null, null, 20)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.listOrderPage(7L, 0L, null, null, 20)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.listOrderPage(7L, null, null, -1L, 20)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.listOrderPage(7L, null, null, null, 0)).isInstanceOf(BizException.class);
+        assertThatThrownBy(() -> service.listOrderPage(7L, null, null, null, 101)).isInstanceOf(BizException.class);
+        verifyNoInteractions(mapper);
+    }
+
+    private WithdrawOrder order(long id, WithdrawStatus status) {
+        WithdrawOrder order = new WithdrawOrder();
+        order.setId(id);
+        order.setAssetId(42L);
+        order.setStatus(status.getCode());
+        order.setSignerKeyId("internal-key");
+        return order;
     }
 
     @ParameterizedTest
